@@ -1,0 +1,8 @@
+tests/memory
+tests/keyheads
+tests/codec_ops
+tests/index_ops
+tests/locks
+tests/api_ops
+*.csv
+.vs
