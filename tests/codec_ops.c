@@ -42,6 +42,7 @@ int main(void)
 	char upper[MAX_KEY_SOURCE + 2];
 	FTransformData tdata;
 	tdata.value_source = NULL;
+	tdata.value_size = 0;
 
 	unsigned i;
 	int rv = 0;

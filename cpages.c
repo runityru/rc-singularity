@@ -233,7 +233,7 @@ int cp_revert(FSingSet *index)
 		}
 	return 0;
 cp_revert_error:
-	index->head->bad_states.states.corrupted = 1;
+	index->head->bad_states.states.corrupted = 2; // Heavy failure, set is not usable anyway
 	return ERROR_INTERNAL;
 	}
 

@@ -59,60 +59,6 @@ int collision_search(unsigned hashtable_size,unsigned needed_hash,unsigned neede
 	return cnt;
 	}
 
-void test_make_tdata(FSingSet *index,char *key_source,int vsize,unsigned char *value,FTransformData *tdata)
-	{
-	tdata->value_source = value;
-	tdata->value_size = vsize;
-	tdata->head.fields.chain_stop = 1;
-	tdata->head.fields.diff_mark = 0;
-	cd_transform(key_source,MAX_KEY_SOURCE,tdata);
-	tdata->hash = index->hashtable_size;
-	cd_encode(tdata);
-	}
-
-void test_process_res(FSingSet *index,int res,FTransformData *tdata)
-	{
-	if (res & KS_CHANGED)
-		{
-		if (tdata->old_key_rest_size)
-			{
-			lck_waitForReaders(index->lock_set);
-			idx_general_free(index,tdata->old_key_rest,tdata->old_key_rest_size);
-			}
-		lck_memoryUnlock(index);
-		}
-	}
-
-int test_add_key(FSingSet *index,char *key_source,int vsize,unsigned char *value)
-	{
-	FTransformData tdata;
-
-	test_make_tdata(index,key_source,vsize,value,&tdata);
-	int rv = idx_key_try_set(index,&tdata);
-	if (!rv)
-		rv = idx_key_set(index,&tdata);
-	test_process_res(index,rv,&tdata);
-	return rv;
-	}
-
-int test_del_key(FSingSet *index,char *key_source)
-	{
-	FTransformData tdata;
-
-	tdata.value_source = NULL;
-	tdata.head.fields.chain_stop = 1;
-	tdata.head.fields.diff_mark = 0;
-
-	cd_transform(key_source,MAX_KEY_SOURCE,&tdata);
-	tdata.hash = index->hashtable_size;
-	cd_encode(&tdata);
-
-	int rv = idx_key_del(index,&tdata);
-	if (rv & KS_CHANGED)
-		lck_memoryUnlock(index);
-	return rv;
-	}
-
 //(1) Размещение тела ключа
 //(1.1) Ключ без тела
 // 1_1_1 Нет значения
@@ -576,45 +522,45 @@ int main(void)
 
 	int rv = 0;
 	FTestData tests[] = {
-		{"alloc_rest_1_1_1",NULL,alloc_rest_test_1_1_1},
-		{"alloc_rest_1_1_2",NULL,alloc_rest_test_1_1_2},
-		{"alloc_rest_1_2_1",NULL,alloc_rest_test_1_2_1},
-		{"alloc_rest_1_2_2",NULL,alloc_rest_test_1_2_2},
-		{"replace_value_2_1_1",replace_value_prep_2_1,replace_value_test_2_1_1},
-		{"replace_value_2_1_2",replace_value_prep_2_1,replace_value_test_2_1_2},
-		{"replace_value_2_2_1",replace_value_prep_2_2,replace_value_test_2_2_1},
-		{"replace_value_2_2_2",replace_value_prep_2_2,replace_value_test_2_2_2},
-		{"replace_value_2_2_3",replace_value_prep_2_2,replace_value_test_2_2_3},
-		{"key_try_set_3_1",key_try_set_prep_3_1,key_try_set_test_3_1},
-		{"key_try_set_3_2",key_try_set_prep_3_2,key_try_set_test_3_2},
-		{"key_try_set_3_3",key_try_set_prep_3_3,key_try_set_test_3_3},
-		{"key_try_set_3_4",key_try_set_prep_3_4,key_try_set_test_3_4},
-		{"key_set_4_1_1",key_set_prep_4_1_1,key_set_test_4_1},
-		{"key_set_4_1_2",key_set_prep_4_1_2,key_set_test_4_1},
-		{"key_set_4_1_3",key_set_prep_4_1_3,key_set_test_4_1},
-		{"key_set_4_1_4",key_set_prep_4_1_4,key_set_test_4_1},
-		{"key_set_4_2_1",key_set_prep_4_2_1,key_set_test_4_2},
-		{"key_set_4_2_2_1",key_set_prep_4_2_2_1,key_set_test_4_2},
-		{"key_set_4_2_2_2",key_set_prep_4_2_2_2,key_set_test_4_2},
-		{"key_set_4_2_2_3",key_set_prep_4_2_2_3,key_set_test_4_2},
-		{"key_set_4_2_2_4",key_set_prep_4_2_2_4,key_set_test_4_2},
-		{"del_key_rest_5_1_1",del_key_rest_prep_5_1_1,del_key_rest_test_5_1},
-		{"del_key_rest_5_1_2",del_key_rest_prep_5_1_2,del_key_rest_test_5_1},
-		{"del_key_rest_5_2_1",del_key_rest_prep_5_2_1,del_key_rest_test_5_2},
-		{"del_key_rest_5_2_2",del_key_rest_prep_5_2_2,del_key_rest_test_5_2},
-		{"del_key_6_1_1",del_key_prep_6_1_1,del_key_test},
-		{"del_key_6_1_2",del_key_prep_6_1_2,del_key_test},
-		{"del_key_6_2_1",del_key_prep_6_2_1,del_key_test},
-		{"del_key_6_2_2",del_key_prep_6_2_2,del_key_test},
-		{"del_key_6_2_3",del_key_prep_6_2_3,del_key_test},
-		{"del_key_6_3_1",del_key_prep_6_3_1,del_key_test},
-		{"del_key_6_3_2",del_key_prep_6_3_2,del_key_test},
-		{"del_key_6_4_1",del_key_prep_6_4_1,del_key_test},
-		{"del_key_6_4_2",del_key_prep_6_4_2,del_key_test},
-		{"del_key_6_4_3",del_key_prep_6_4_3,del_key_test},
-		{"del_key_6_4_4",del_key_prep_6_4_4,del_key_test},
-		{"del_key_6_4_5",del_key_prep_6_4_5,del_key_test},
-		{"del_key_6_5",del_key_prep_6_5,del_key_test},
+		{"alloc_rest_1_1_1",NULL,alloc_rest_test_1_1_1,LM_NONE,0},
+		{"alloc_rest_1_1_2",NULL,alloc_rest_test_1_1_2,LM_NONE,0},
+		{"alloc_rest_1_2_1",NULL,alloc_rest_test_1_2_1,LM_NONE,0},
+		{"alloc_rest_1_2_2",NULL,alloc_rest_test_1_2_2,LM_NONE,0},
+		{"replace_value_2_1_1",replace_value_prep_2_1,replace_value_test_2_1_1,LM_NONE,0},
+		{"replace_value_2_1_2",replace_value_prep_2_1,replace_value_test_2_1_2,LM_NONE,0},
+		{"replace_value_2_2_1",replace_value_prep_2_2,replace_value_test_2_2_1,LM_NONE,0},
+		{"replace_value_2_2_2",replace_value_prep_2_2,replace_value_test_2_2_2,LM_NONE,0},
+		{"replace_value_2_2_3",replace_value_prep_2_2,replace_value_test_2_2_3,LM_NONE,0},
+		{"key_try_set_3_1",key_try_set_prep_3_1,key_try_set_test_3_1,LM_NONE,0},
+		{"key_try_set_3_2",key_try_set_prep_3_2,key_try_set_test_3_2,LM_NONE,0},
+		{"key_try_set_3_3",key_try_set_prep_3_3,key_try_set_test_3_3,LM_NONE,0},
+		{"key_try_set_3_4",key_try_set_prep_3_4,key_try_set_test_3_4,LM_NONE,0},
+		{"key_set_4_1_1",key_set_prep_4_1_1,key_set_test_4_1,LM_NONE,0},
+		{"key_set_4_1_2",key_set_prep_4_1_2,key_set_test_4_1,LM_NONE,0},
+		{"key_set_4_1_3",key_set_prep_4_1_3,key_set_test_4_1,LM_NONE,0},
+		{"key_set_4_1_4",key_set_prep_4_1_4,key_set_test_4_1,LM_NONE,0},
+		{"key_set_4_2_1",key_set_prep_4_2_1,key_set_test_4_2,LM_NONE,0},
+		{"key_set_4_2_2_1",key_set_prep_4_2_2_1,key_set_test_4_2,LM_NONE,0},
+		{"key_set_4_2_2_2",key_set_prep_4_2_2_2,key_set_test_4_2,LM_NONE,0},
+		{"key_set_4_2_2_3",key_set_prep_4_2_2_3,key_set_test_4_2,LM_NONE,0},
+		{"key_set_4_2_2_4",key_set_prep_4_2_2_4,key_set_test_4_2,LM_NONE,0},
+		{"del_key_rest_5_1_1",del_key_rest_prep_5_1_1,del_key_rest_test_5_1,LM_NONE,0},
+		{"del_key_rest_5_1_2",del_key_rest_prep_5_1_2,del_key_rest_test_5_1,LM_NONE,0},
+		{"del_key_rest_5_2_1",del_key_rest_prep_5_2_1,del_key_rest_test_5_2,LM_NONE,0},
+		{"del_key_rest_5_2_2",del_key_rest_prep_5_2_2,del_key_rest_test_5_2,LM_NONE,0},
+		{"del_key_6_1_1",del_key_prep_6_1_1,del_key_test,LM_NONE,0},
+		{"del_key_6_1_2",del_key_prep_6_1_2,del_key_test,LM_NONE,0},
+		{"del_key_6_2_1",del_key_prep_6_2_1,del_key_test,LM_NONE,0},
+		{"del_key_6_2_2",del_key_prep_6_2_2,del_key_test,LM_NONE,0},
+		{"del_key_6_2_3",del_key_prep_6_2_3,del_key_test,LM_NONE,0},
+		{"del_key_6_3_1",del_key_prep_6_3_1,del_key_test,LM_NONE,0},
+		{"del_key_6_3_2",del_key_prep_6_3_2,del_key_test,LM_NONE,0},
+		{"del_key_6_4_1",del_key_prep_6_4_1,del_key_test,LM_NONE,0},
+		{"del_key_6_4_2",del_key_prep_6_4_2,del_key_test,LM_NONE,0},
+		{"del_key_6_4_3",del_key_prep_6_4_3,del_key_test,LM_NONE,0},
+		{"del_key_6_4_4",del_key_prep_6_4_4,del_key_test,LM_NONE,0},
+		{"del_key_6_4_5",del_key_prep_6_4_5,del_key_test,LM_NONE,0},
+		{"del_key_6_5",del_key_prep_6_5,del_key_test,LM_NONE,0},
 		};
 	unsigned tcnt = sizeof(tests) / sizeof(FTestData);
 	for (i = 0; i < tcnt; i++)

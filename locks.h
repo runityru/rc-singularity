@@ -61,7 +61,7 @@ void lck_deinit_locks(FSingSet *index);
 int lck_processLock(FSingSet *index);
 
 // Снятие блокировки записи на уровне процесса
-int lck_processUnlock(FSingSet *index,int op_result);
+int lck_processUnlock(FSingSet *index,int op_result,int autorevert);
 
 // Ручная блокировка записи на уровне процесса
 int lck_manualLock(FSingSet *index);
