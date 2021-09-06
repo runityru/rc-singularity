@@ -21,7 +21,7 @@ static void _buffer_release(FBufferSet *set,unsigned buf_num, unsigned to_state)
 	pthread_mutex_unlock(&work->buffer_lock);
 	}
 
-static void _buffer_aquire(FBufferSet *set,unsigned buf_num, unsigned from_state)
+static void _buffer_acquire(FBufferSet *set,unsigned buf_num, unsigned from_state)
 	{
 	FIOBuffer *work = &set->buffers[buf_num];
 	pthread_mutex_lock(&work->buffer_lock); 
@@ -46,7 +46,7 @@ read_thread_repeat:
 	if (state == BUFF_STATE_STOP)
 		return (void *)0;
 	cur_buf_num = 1 - cur_buf_num;
-	_buffer_aquire(set,cur_buf_num,BUFF_STATE_PROCESS);
+	_buffer_acquire(set,cur_buf_num,BUFF_STATE_PROCESS);
 	workbuf = &set->buffers[cur_buf_num];
 	if (workbuf->state == BUFF_STATE_STOP)
 		return (void *)0;
@@ -59,7 +59,7 @@ static void *write_thread(void *param)
 	unsigned cur_buf_num = 0;
 	FIOBuffer *workbuf = &set->buffers[0];
 write_thread_repeat:
-	_buffer_aquire(set,cur_buf_num,BUFF_STATE_FILL);
+	_buffer_acquire(set,cur_buf_num,BUFF_STATE_FILL);
 	file_write(set->fd,&workbuf->data[MOVABLE_TAIL],workbuf->size);
 	if (workbuf->state == BUFF_STATE_STOP)
 		return (void *)0;
@@ -74,9 +74,11 @@ static void _init(FBufferSet *set)
 	pthread_mutex_init(&set->buffers[0].buffer_lock,NULL);
 	pthread_cond_init(&set->buffers[0].state_changed,NULL);
 	set->buffers[0].state = BUFF_STATE_FILL;
+	set->buffers[0].size = 0;
 	pthread_mutex_init(&set->buffers[1].buffer_lock,NULL);
 	pthread_cond_init(&set->buffers[1].state_changed,NULL);
 	set->buffers[1].state = BUFF_STATE_FILL;
+	set->buffers[1].size = 0;
 	set->mbuf_num = 0;
 	set->mbuf = &set->buffers[0];
 	}
@@ -107,7 +109,7 @@ int fb_init_w(FBufferSet *set,const char *filename)
 char *fb_first_block(FBufferSet *set,int *size)
 	{
 	FIOBuffer *workbuf = &set->buffers[0];
-	_buffer_aquire(set,0,BUFF_STATE_FILL);
+	_buffer_acquire(set,0,BUFF_STATE_FILL);
 	*size = workbuf->size;
 	return workbuf->size ? &workbuf->data[MOVABLE_TAIL] : NULL;
 	}
@@ -118,7 +120,7 @@ char *fb_next_block(FBufferSet *set,int *size)
 		return NULL;
 	_buffer_release(set,set->mbuf_num,BUFF_STATE_FILL);
 	set->mbuf_num = 1 - set->mbuf_num;
-	_buffer_aquire(set,set->mbuf_num,BUFF_STATE_FILL);
+	_buffer_acquire(set,set->mbuf_num,BUFF_STATE_FILL);
 	set->mbuf = &set->buffers[set->mbuf_num];
 	*size = set->mbuf->size;
 	return &set->mbuf->data[MOVABLE_TAIL];
@@ -130,7 +132,7 @@ char *fb_next_block_partial(FBufferSet *set,int *size,int *crp)
 	if (set->mbuf->state == BUFF_STATE_STOP)
 		return &set->mbuf->data[MOVABLE_TAIL];
 	set->mbuf_num = 1 - set->mbuf_num;
-	_buffer_aquire(set,set->mbuf_num,BUFF_STATE_FILL);
+	_buffer_acquire(set,set->mbuf_num,BUFF_STATE_FILL);
 	set->mbuf = &set->buffers[set->mbuf_num];
 	if ((tocpy = *size - *crp))
 		memcpy(&set->mbuf->data[MOVABLE_TAIL - tocpy],&set->buffers[onum].data[MOVABLE_TAIL + *crp],tocpy);
@@ -149,7 +151,7 @@ void fb_added(FBufferSet *set,int size)
 		set->mbuf->size = BUFFER_SIZE;
 		_buffer_release(set,set->mbuf_num,BUFF_STATE_PROCESS);
 		set->mbuf_num = 1 - set->mbuf_num;
-		_buffer_aquire(set,set->mbuf_num,BUFF_STATE_PROCESS);
+		_buffer_acquire(set,set->mbuf_num,BUFF_STATE_PROCESS);
 		set->mbuf = &set->buffers[set->mbuf_num];
 		if ((set->mbuf->size = obsize - BUFFER_SIZE))
 			memcpy(&set->mbuf->data[MOVABLE_TAIL],rest,set->mbuf->size);
@@ -168,7 +170,7 @@ void fb_add(FBufferSet *set,const char *data,int size)
 		return;
 	_buffer_release(set,set->mbuf_num,BUFF_STATE_PROCESS);
 	set->mbuf_num = 1 - set->mbuf_num;
-	_buffer_aquire(set,set->mbuf_num,BUFF_STATE_PROCESS);
+	_buffer_acquire(set,set->mbuf_num,BUFF_STATE_PROCESS);
 	set->mbuf = &set->buffers[set->mbuf_num];
 fb_add_repeat:
 	tocpy = size > BUFFER_SIZE ? BUFFER_SIZE : size;
@@ -179,7 +181,7 @@ fb_add_repeat:
 		return;
 	_buffer_release(set,set->mbuf_num,BUFF_STATE_PROCESS);
 	set->mbuf_num = 1 - set->mbuf_num;
-	_buffer_aquire(set,set->mbuf_num,BUFF_STATE_PROCESS);
+	_buffer_acquire(set,set->mbuf_num,BUFF_STATE_PROCESS);
 	set->mbuf = &set->buffers[set->mbuf_num];
 	goto fb_add_repeat;
 	}

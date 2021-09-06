@@ -3,6 +3,8 @@ Major - data store format
 Minor - incompatible API changes
 Release - fixes, performance improvement, API additions
 
+0.9.2 - fixed name of flag SING_CF_READER. Fixed bug in file buffers initialization. 
+
 0.9.1 - added some api tests, minor api and documentation fixes. Autorevert in LM_SIMPLE now works for comples API calls only, 
         it should be nothing to do in simple calls
 
