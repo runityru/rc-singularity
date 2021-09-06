@@ -139,9 +139,12 @@ int main(int argc, char *argv[])
 		goto exit; 
 		}
 
-	if (w_op && (lm == SING_LM_FAST || lm == SING_LM_NONE) &&	sing_flush(shmIndex,NULL))
-		goto exit;
-	
+	if (w_op)
+		{
+		int res = sing_flush(shmIndex,NULL);
+		if (res && res != SING_ERROR_IMPOSSIBLE_OPERATION)
+			goto exit;
+		}
 	rv = 0;
 exit:
 	

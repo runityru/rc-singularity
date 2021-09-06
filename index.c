@@ -124,7 +124,7 @@ FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,
 			{ cnf_set_error(config,"not enougth memory for set initialization"); goto idx_empty_index_fail; }
 		}
 	
-	if (flags & CF_LOW_FD_READER)
+	if (flags & CF_READER)
 		flags |= CF_FULL_LOAD;
 	rv->conn_flags = (config->connect_flags | flags) & CF_MASK;
 
@@ -275,7 +275,7 @@ void idx_creation_done(FSingSet *index,unsigned lock_mode)
 		file_lock(index->index_fd,LOCK_UN);
 		close(index->index_fd);
 		index->index_fd = -1;
-		if (index->conn_flags & CF_LOW_FD_READER)
+		if (index->conn_flags & CF_READER)
 			{
 			if (index->disk_index_fd != -1) 
 				close(index->disk_index_fd), index->disk_index_fd = -1;
@@ -283,7 +283,7 @@ void idx_creation_done(FSingSet *index,unsigned lock_mode)
 				close(index->disk_pages_fd), index->disk_pages_fd = -1;
 			}
 		}
-	if (index->conn_flags & CF_LOW_FD_READER)
+	if (index->conn_flags & CF_READER)
 		index->read_only = 1;
 	}
 	
@@ -309,7 +309,7 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 	if (_set_sharenames(rv,setname))
 		{ cnf_set_error(config,"not enougth memory for set initialization"); goto sing_link_set_fail; } 
 
-	if (flags & CF_LOW_FD_READER)
+	if (flags & CF_READER)
 		flags |= CF_FULL_LOAD;
 	rv->conn_flags = (config->connect_flags | flags) & CF_MASK;
 	rv->is_private = 0;
@@ -440,7 +440,7 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 		}
 
 	close(ifd);
-	if (rv->conn_flags & CF_LOW_FD_READER)
+	if (rv->conn_flags & CF_READER)
 		{
 		if (rv->disk_index_fd != -1) 
 			close(rv->disk_index_fd), rv->disk_index_fd = -1;
