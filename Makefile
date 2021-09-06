@@ -32,7 +32,7 @@ codec_ops_tests:
 locks_tests:
 	gcc $(DEBUG) $(COMMON_OPTIONS) tests/locks.c $(BASE_SET) -o tests/locks $(LIBS)
 api_tests:
-	gcc $(DEBUG) $(COMMON_OPTIONS) tests/api_ops.c $(BASE_SET) -o tests/api_ops $(LIBS)
+	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/api_ops.c $(BASE_SET) -o tests/api_ops $(LIBS)
 
 autotests: memory_tests keyheads_tests index_ops_tests codec_ops_tests locks_tests api_tests
 	

@@ -216,23 +216,28 @@ int sing_unlock_commit(FSingSet *kvset,uint32_t *saved)
 	{ return lck_manualUnlock(kvset,1,saved); }
 
 int sing_unlock_revert(FSingSet *kvset)
-	{ return lck_manualUnlock(kvset,0,NULL); }
+	{
+	if (kvset->head->use_flags & UF_NOT_PERSISTENT)
+		return ERROR_IMPOSSIBLE_OPERATION;
+	return lck_manualUnlock(kvset,0,NULL); 
+	}
 
 int sing_flush(FSingSet *kvset,uint32_t *saved)
 	{
 	SIMPLE_CALL_CHECKUP(kvset);
-	if (kvset->head->use_mutex || kvset->head->check_mutex || kvset->head->read_only 
+	if (kvset->head->use_mutex || kvset->head->check_mutex || kvset->read_only 
 			|| kvset->manual_locked || (kvset->head->use_flags & UF_NOT_PERSISTENT))
 		return ERROR_IMPOSSIBLE_OPERATION;
 	int res = idx_flush(kvset);
 	if (res < 0) return res;
-	*saved = res;
+	if (saved) *saved = res;
 	return 0;
 	}
 
 int sing_revert(FSingSet *kvset)
 	{
-	if (kvset->head->use_mutex || kvset->head->check_mutex || kvset->head->read_only 
+	SIMPLE_CALL_CHECKUP(kvset);
+	if (kvset->head->use_mutex || kvset->head->check_mutex || kvset->read_only 
 			|| kvset->manual_locked || (kvset->head->use_flags & UF_NOT_PERSISTENT))
 		return ERROR_IMPOSSIBLE_OPERATION;
 	int res = idx_revert(kvset);
@@ -250,7 +255,7 @@ int sing_add_file(FSingSet *kvset,const FSingCSVFile *csv_file)
 	if (!rv)
 		{
 		rv = plain_process_file(kvset,csv_file,&sourceRbs,0,NULL);
-		rv = lck_processUnlock(kvset,rv);
+		rv = lck_processUnlock(kvset,rv,1);
 		}
 	fb_finish(&sourceRbs);
 	return rv;
@@ -266,7 +271,7 @@ int sing_sub_file(FSingSet *kvset,const FSingCSVFile *csv_file)
 	if (!rv)
 		{
 		rv = plain_process_file(kvset,csv_file,&sourceRbs,1,NULL);
-		rv = lck_processUnlock(kvset,rv);
+		rv = lck_processUnlock(kvset,rv,1);
 		}
 	fb_finish(&sourceRbs);
 	return rv;
@@ -316,7 +321,7 @@ int sing_diff_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file,const ch
 		rv = (*fpc)(kvset,csv_file,&sourceRbs,parse_process_diff_replace,ecb,0,&diff_param);
 		if (!rv)
 			idx_del_unmarked(kvset,diff_param.new_counters,resultDeletedToFile,&resultWbs);
-		rv = lck_processUnlock(kvset,rv);
+		rv = lck_processUnlock(kvset,rv,1);
 		}
 diff_exit:
 	if (diff_param.new_counters)
@@ -348,7 +353,7 @@ static inline int _init_tdata(FSingSet *kvset,FTransformData *tdata,const char *
 	if (!key)
 		return 1;
 	int size = cd_transform(key,ksize,tdata);
-	if (size <= 0 || key[size])
+	if (size <= 0 || (size < ksize && key[size]))
 		return 1;
 	tdata->hash = kvset->hashtable_size;
 	cd_encode(tdata);
@@ -361,7 +366,7 @@ int sing_get_value_cb(FSingSet *kvset,const char *key,CSingValueAllocator vacb,v
 	FTransformData tdata;
 	FReaderLock rlock = {0,0,0};
 	if(_init_tdata(kvset,&tdata,key,MAX_KEY_SOURCE,NULL,0))
-		return RESULT_IMPOSSIBLE_KEY;
+		return *value = NULL, *vsize = 0, RESULT_IMPOSSIBLE_KEY;
 	return idx_key_get_cb(kvset,&tdata,&rlock,vacb,value,vsize);
 	}
 
@@ -371,7 +376,7 @@ int sing_get_value_cb_n(FSingSet *kvset,const char *key,unsigned ksize,CSingValu
 	FTransformData tdata;
 	FReaderLock rlock = {0,0,0};
 	if(_init_tdata(kvset,&tdata,key,ksize,NULL,0))
-		return RESULT_IMPOSSIBLE_KEY;
+		return *value = NULL, *vsize = 0, RESULT_IMPOSSIBLE_KEY;
 	return idx_key_get_cb(kvset,&tdata,&rlock,vacb,value,vsize);
 	}
 
@@ -440,7 +445,7 @@ int sing_get_value(FSingSet *kvset,const char *key,void *value,unsigned *vsize)
 	FTransformData tdata;
 	FReaderLock rlock = {0,0,0};
 	if(_init_tdata(kvset,&tdata,key,MAX_KEY_SOURCE,NULL,0))
-		return RESULT_IMPOSSIBLE_KEY;
+		return *vsize = 0, RESULT_IMPOSSIBLE_KEY;
 	return idx_key_get(kvset,&tdata,&rlock,value,vsize);
 	}
 
@@ -450,7 +455,7 @@ int sing_get_value_n(FSingSet *kvset,const char *key,unsigned ksize,void *value,
 	FTransformData tdata;
 	FReaderLock rlock = {0,0,0};
 	if(_init_tdata(kvset,&tdata,key,ksize,NULL,0))
-		return RESULT_IMPOSSIBLE_KEY;
+		return *vsize = 0, RESULT_IMPOSSIBLE_KEY;
 	return idx_key_get(kvset,&tdata,&rlock,value,vsize);
 	}
 
@@ -549,7 +554,7 @@ int sing_set_key(FSingSet *kvset,const char *key,void *value,unsigned vsize)
 		rv = idx_key_set(kvset,&tdata);
 	idx_op_finalize(kvset,&tdata,rv);
 	lck_chainUnlock(kvset,tdata.hash);
-	rv = lck_processUnlock(kvset,rv);
+	rv = lck_processUnlock(kvset,rv,0);
 	if (rv & KS_ERROR)
 		return rv;
 	return ((rv & KS_CHANGED) == KS_ADDED) ? 0 : RESULT_KEY_PRESENT;
@@ -569,7 +574,7 @@ int sing_del_key(FSingSet *kvset,const char *key)
 	rv = idx_key_del(kvset,&tdata);
 	idx_op_finalize(kvset,&tdata,rv);
 	lck_chainUnlock(kvset,tdata.hash);
-	rv = lck_processUnlock(kvset,rv);
+	rv = lck_processUnlock(kvset,rv,0);
 	if (rv < 0)
 		return rv;
 	return (rv & KS_CHANGED) ? 0 : RESULT_KEY_NOT_FOUND;

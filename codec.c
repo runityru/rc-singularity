@@ -154,12 +154,12 @@ int cd_decode(char *outBuf,const FKeyHead *head,const element_type *key_rest)
 		if (!sym) return 6;
 		outBuf[6] = CODE_SYMS[sym];
 		sym = work % 40, work /= 40;
-		if (!sym) return 6;
+		if (!sym) return 7;
 		outBuf[7] = CODE_SYMS[sym];
 		sym = work % 40, work /= 40;
-		if (!sym) return 7;
+		if (!sym) return 8;
 		outBuf[8] = CODE_SYMS[sym];
-		if (!work) return 8;
+		if (!work) return 9;
 		outBuf[9] = CODE_SYMS[work];
 		return 10;
 		}

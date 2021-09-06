@@ -1,5 +1,5 @@
 /*
- * Copyright (C) ìHostcommî LLC
+ * Copyright (C) ‚ÄúHostcomm‚Äù LLC
  * Copyright (C) Evgeniy Buevich
  * Contact email: singularity@nic.ru
  */
@@ -26,9 +26,9 @@ void check_page_type(FSingSet *index,element_type idx,EPageTypes page_type)
 	}
 #endif
 
-// œË ÔÓËÒÍÂ Ì‡¯ÎË ÒÒ˚ÎÍÛ Ì‡ ÒÚ‡ÌËˆÛ, ÍÓÚÓÓÈ ÌÂÚ ‚ Ô‡ÏˇÚË
-// 0 - Ó¯Ë·Í‡ mmap
-// 1 - ÛÒÔÂ¯ÌÓ
+// –ü—Ä–∏ –ø–æ–∏—Å–∫–µ –Ω–∞—à–ª–∏ —Å—Å—ã–ª–∫—É –Ω–∞ —Å—Ç—Ä–∞–Ω–∏—Ü—É, –∫–æ—Ç–æ—Ä–æ–π –Ω–µ—Ç –≤ –ø–∞–º—è—Ç–∏
+// 0 - –æ—à–∏–±–∫–∞ mmap
+// 1 - —É—Å–ø–µ—à–Ω–æ
 int _load_page(FSingSet *index,unsigned pnum)
 	{
 	if (pnum >= index->head->pcnt || index->pages_fd == -1)
@@ -52,7 +52,7 @@ int _load_page(FSingSet *index,unsigned pnum)
 	return rv;
 	}
 	
-// ¡˚ÒÚÓÂ ÔÓÎÛ˜ÂÌËÂ ÒÒ˚ÎÍË ‚ Á‡‚Â‰ÓÏÓ Ô‡‚ËÎ¸ÌÓÈ Ë ÔËÎËÌÍÓ‚‡ÌÌÓÈ Ó·Î‡ÒÚË
+// –ë—ã—Å—Ç—Ä–æ–µ –ø–æ–ª—É—á–µ–Ω–∏–µ —Å—Å—ã–ª–∫–∏ –≤ –∑–∞–≤–µ–¥–æ–º–æ –ø—Ä–∞–≤–∏–ª—å–Ω–æ–π –∏ –ø—Ä–∏–ª–∏–Ω–∫–æ–≤–∞–Ω–Ω–æ–π –æ–±–ª–∞—Å—Ç–∏
 #ifdef MEMORY_CHECK
 element_type *PAGES_POINTER(FSingSet *index,element_type idx)
 	{
@@ -66,7 +66,7 @@ element_type *PAGES_POINTER(FSingSet *index,element_type idx)
 	}
 #endif
 
-// œÓÎÛ˜ÂÌËÂ ÒÒ˚ÎÍË ÔÓ ËÌ‰ÂÍÒÛ Ò ÔÓ‚ÂÍÓÈ ÂÂ ‚‡ÎË‰ÌÓÒÚË ‰Îˇ Â„ËÓÌ‡
+// –ü–æ–ª—É—á–µ–Ω–∏–µ —Å—Å—ã–ª–∫–∏ –ø–æ –∏–Ω–¥–µ–∫—Å—É —Å –ø—Ä–æ–≤–µ—Ä–∫–æ–π –µ–µ –≤–∞–ª–∏–¥–Ω–æ—Å—Ç–∏ –¥–ª—è —Ä–µ–≥–∏–æ–Ω–∞
 element_type *regionPointer(FSingSet *index,element_type idx,unsigned size)
 	{
 	FAILURE_CHECK(!idx || idx == ZERO_REF,"zero pages pointer");
@@ -81,19 +81,19 @@ element_type *regionPointer(FSingSet *index,element_type idx,unsigned size)
 	return &index->pages[pnum][rst];
 	}
 
-// œÓÎÛ˜ÂÌËÂ ÒÒ˚ÎÍË ÔÓ ËÌ‰ÂÍÒÛ Ò ÔÓ‚ÂÍÓÈ ÂÂ ‚‡ÎË‰ÌÓÒÚË ‰Îˇ Â„ËÓÌ‡ (‚ÓÁ‚‡Ú NULL ‚ ÒÎÛ˜‡Â Ó¯Ë·ÍË)
+// –ü–æ–ª—É—á–µ–Ω–∏–µ —Å—Å—ã–ª–∫–∏ –ø–æ –∏–Ω–¥–µ–∫—Å—É —Å –ø—Ä–æ–≤–µ—Ä–∫–æ–π –µ–µ –≤–∞–ª–∏–¥–Ω–æ—Å—Ç–∏ –¥–ª—è —Ä–µ–≥–∏–æ–Ω–∞ (–≤–æ–∑–≤—Ä–∞—Ç NULL –≤ —Å–ª—É—á–∞–µ –æ—à–∏–±–∫–∏)
 element_type *regionPointerNoError(FSingSet *index,element_type idx,unsigned size)
 	{
 	FAILURE_CHECK(!idx || idx == ZERO_REF,"zero pages pointer");
 	unsigned pnum = idx >> PAGE_SHIFT;
 	unsigned rst = idx & OFFSET_MASK;
 	
-	// ›ÚÓ ÏÓÊÂÚ ·˚Ú¸ Ë ¯Ú‡ÚÌ‡ˇ ÒËÚÛ‡ˆËˇ
+	// –≠—Ç–æ –º–æ–∂–µ—Ç –±—ã—Ç—å –∏ —à—Ç–∞—Ç–Ω–∞—è —Å–∏—Ç—É–∞—Ü–∏—è
 	if (size > PAGE_SIZE || rst + size > PAGE_SIZE)	return NULL;
 	return (index->pages[pnum] != MAP_FAILED || _load_page(index,pnum)) ? &index->pages[pnum][rst] : NULL;
 	}
 	
-// œÓÎÛ˜ÂÌËÂ ÒÒ˚ÎÍË ÔÓ ËÌ‰ÂÍÒÛ Ò ÔÓ‰„ÛÁÍÓÈ ÒÚ‡ÌËˆ˚
+// –ü–æ–ª—É—á–µ–Ω–∏–µ —Å—Å—ã–ª–∫–∏ –ø–æ –∏–Ω–¥–µ–∫—Å—É —Å –ø–æ–¥–≥—Ä—É–∑–∫–æ–π —Å—Ç—Ä–∞–Ω–∏—Ü—ã
 element_type *pagesPointer(FSingSet *index,element_type idx)
 	{
 	FAILURE_CHECK(!idx || idx == ZERO_REF,"zero pages pointer");
@@ -105,7 +105,7 @@ element_type *pagesPointer(FSingSet *index,element_type idx)
 	return &index->pages[pnum][idx & OFFSET_MASK];
 	}
 
-// œÓÎÛ˜ÂÌËÂ ÒÒ˚ÎÍË ÔÓ ËÌ‰ÂÍÒÛ Ò ÔÓ‰„ÛÁÍÓÈ ÒÚ‡ÌËˆ˚ Ë ÔÓ‚ÂÍÓÈ ÂÂ ‚‡ÎË‰ÌÓÒÚË
+// –ü–æ–ª—É—á–µ–Ω–∏–µ —Å—Å—ã–ª–∫–∏ –ø–æ –∏–Ω–¥–µ–∫—Å—É —Å –ø–æ–¥–≥—Ä—É–∑–∫–æ–π —Å—Ç—Ä–∞–Ω–∏—Ü—ã –∏ –ø—Ä–æ–≤–µ—Ä–∫–æ–π –µ–µ –≤–∞–ª–∏–¥–Ω–æ—Å—Ç–∏
 element_type *pagesPointerNoError(FSingSet *index,element_type idx)
 	{
 	FAILURE_CHECK(!idx || idx == ZERO_REF,"zero pages pointer");
@@ -121,7 +121,7 @@ static inline element_type *pagePointer(FSingSet *index,unsigned pnum)
 	return index->pages[pnum];
 	}
 
-// ¬˚‰ÂÎÂÌËÂ ÒÚ‡ÌËˆ˚. ¬ÓÁ‚‡˘‡ÂÚ ÌÓÏÂ ÔÓ„ÛÊÂÌÌÓÈ ÒÚ‡ÌËˆ˚
+// –í—ã–¥–µ–ª–µ–Ω–∏–µ —Å—Ç—Ä–∞–Ω–∏—Ü—ã. –í–æ–∑–≤—Ä–∞—â–∞–µ—Ç –Ω–æ–º–µ—Ä –ø—Ä–æ–≥—Ä—É–∂–µ–Ω–Ω–æ–π —Å—Ç—Ä–∞–Ω–∏—Ü—ã
 unsigned idx_alloc_page(FSingSet *index,EPageTypes page_type)
 	{
 	unsigned pnum;
@@ -175,7 +175,7 @@ void idx_free_page(FSingSet *index,unsigned pnum)
 		}
 	}
 
-// ƒÓ·‡‚ÎˇÂÚ Í *free_size ‡ÁÏÂ ÔÛÒÚ˚ı ÒÚ‡ÌËˆ
+// –î–æ–±–∞–≤–ª—è–µ—Ç –∫ *free_size —Ä–∞–∑–º–µ—Ä –ø—É—Å—Ç—ã—Ö —Å—Ç—Ä–∞–Ω–∏—Ü
 int check_free_pages(FSingSet *index,FCheckData *check_data)
 	{
 	unsigned pnum = index->head->first_empty_page;
@@ -195,28 +195,28 @@ int check_free_pages(FSingSet *index,FCheckData *check_data)
 	}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
-///////                    ¬˚‰ÂÎÂÌËÂ Ë ÓÒ‚Ó·ÓÊ‰ÂÌËÂ Ô‡ÏˇÚË
+///////                    –í—ã–¥–µ–ª–µ–Ω–∏–µ –∏ –æ—Å–≤–æ–±–æ–∂–¥–µ–Ω–∏–µ –ø–∞–º—è—Ç–∏
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
-// Ã‡ÎÂÌ¸ÍËÂ ‰˚ÍË
+// –ú–∞–ª–µ–Ω—å–∫–∏–µ –¥—ã—Ä–∫–∏
 
-// ÷ÂÔÓ˜ÍË ÔÓ‰ÒÚ‡ÌËˆ Ò ‰˚Í‡ÏË
+// –¶–µ–ø–æ—á–∫–∏ –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü —Å –¥—ã—Ä–∫–∞–º–∏
 
-// —ÏÂ˘ÂÌËÂ ÔÓ‰ÒÚ‡ÌËˆ˚ ‚ÌÛÚË ÒÚ‡ÌËˆ˚
+// –°–º–µ—â–µ–Ω–∏–µ –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü—ã –≤–Ω—É—Ç—Ä–∏ —Å—Ç—Ä–∞–Ω–∏—Ü—ã
 static inline unsigned _sub_page_offset(element_type subpage_idx)
 	{
 	unsigned spnum = (subpage_idx & OFFSET_MASK) / DISK_PAGE_SIZE;
 	return spnum ? (spnum * DISK_PAGE_SIZE) : SPEC_PAGE_HEAD_SIZE;
 	}
 
-// —ÏÂ˘ÂÌËÂ ÔÓ‰ÒÚ‡ÌËˆ˚ ‚ÌÛÚË ÒÚ‡ÌËˆ˚
+// –°–º–µ—â–µ–Ω–∏–µ –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü—ã –≤–Ω—É—Ç—Ä–∏ —Å—Ç—Ä–∞–Ω–∏—Ü—ã
 static inline unsigned _sub_page_ref(element_type subpage_idx)
 	{
 	unsigned spnum = (subpage_idx & OFFSET_MASK) / DISK_PAGE_SIZE;
 	return (subpage_idx & ~OFFSET_MASK) + (spnum ? (spnum * DISK_PAGE_SIZE) : SPEC_PAGE_HEAD_SIZE);
 	}
 	
-// ¬˚‰ÂÎÂÌËÂ ÏÂÒÚ‡ Ì‡ ÒÔÂˆË‡Î¸Ì˚ı ÔÓ‰ÒÚ‡ÌËˆ‡ı
+// –í—ã–¥–µ–ª–µ–Ω–∏–µ –º–µ—Å—Ç–∞ –Ω–∞ —Å–ø–µ—Ü–∏–∞–ª—å–Ω—ã—Ö –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü–∞—Ö
 element_type *idx_small_alloc(FSingSet *index,unsigned size,element_type *ref_pointer)
 	{
 	element_type ref,subpage_idx;
@@ -229,7 +229,7 @@ element_type *idx_small_alloc(FSingSet *index,unsigned size,element_type *ref_po
 	FSpecPageHead *page_head;	
 	
 	if ((subpage_idx = head->holes[hs_idx]) != ZERO_REF)
-		{ // ≈ÒÎË ÂÒÚ¸ ‰˚Í‡ ÌÛÊÌÓ„Ó ‡ÁÏÂ‡
+		{ // –ï—Å–ª–∏ –µ—Å—Ç—å –¥—ã—Ä–∫–∞ –Ω—É–∂–Ω–æ–≥–æ —Ä–∞–∑–º–µ—Ä–∞
 		page = pagePointer(index,subpage_idx >> PAGE_SHIFT);
 		subp_head = (FSubpageHead *)&page[_sub_page_offset(subpage_idx)];
 		ref = subp_head->first_hole;
@@ -237,7 +237,7 @@ element_type *idx_small_alloc(FSingSet *index,unsigned size,element_type *ref_po
 		small_hole = &page[ref & OFFSET_MASK];
 		subp_head->first_hole = *small_hole;
 		if (++subp_head->used_count == subp_head->total_count) 
-			{ // œÓ‰ÒÚ‡ÌËˆ‡ Á‡ÌˇÚ‡ ˆÂÎËÍÓÏ, ‚˚ÍË‰˚‚‡ÂÏ ËÁ ˆÂÔÓ˜ÍË ÔÓ‰ÒÚ‡ÌËˆ Ò ‰˚Í‡ÏË
+			{ // –ü–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü–∞ –∑–∞–Ω—è—Ç–∞ —Ü–µ–ª–∏–∫–æ–º, –≤—ã–∫–∏–¥—ã–≤–∞–µ–º –∏–∑ —Ü–µ–ø–æ—á–∫–∏ –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü —Å –¥—ã—Ä–∫–∞–º–∏
 			FORMATTED_LOG_MEMORY("subpage at %u has no more holes\n",subpage_idx);
 			index->head->holes[hs_idx] = subp_head->next_sub_page;
 			}
@@ -248,7 +248,7 @@ element_type *idx_small_alloc(FSingSet *index,unsigned size,element_type *ref_po
 		return (element_type *)small_hole;
 		}
 	if ((ref = head->alloc_zones[hs_idx]) != ZERO_REF)
-		{ // ≈ÒÎË ÂÒÚ¸ ˜‡ÒÚË˜ÌÓ ‚˚‰ÂÎÂÌÌ‡ˇ ÔÓ‰ÒÚ‡ÌËˆ‡
+		{ // –ï—Å–ª–∏ –µ—Å—Ç—å —á–∞—Å—Ç–∏—á–Ω–æ –≤—ã–¥–µ–ª–µ–Ω–Ω–∞—è –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü–∞
 		pf_spec_page = ref >> PAGE_SHIFT;
 		sp_start = _sub_page_offset(ref);
 		
@@ -261,11 +261,11 @@ element_type *idx_small_alloc(FSingSet *index,unsigned size,element_type *ref_po
 
 		if (ref % DISK_PAGE_SIZE + size * 2 > DISK_PAGE_SIZE)
 			{
-			head->alloc_zones[hs_idx] = ZERO_REF; // Õ‡ ÔÓ‰ÒÚ‡ÌËˆÂ ÌÂÚ ÏÂÒÚ‡ ‰Îˇ ‰‚Ûı ‰˚ÓÍ (˝ÚÓÈ Ë Â˘Â Ó‰ÌÓÈ), Û‰‡ÎˇÂÏ ÒÒ˚ÎÍÛ Ì‡ ÌÂÂ Í‡Í ÁÓÌÛ ‚˚‰ÂÎÂÌËˇ ÏÂÒÚ‡
+			head->alloc_zones[hs_idx] = ZERO_REF; // –ù–∞ –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü–µ –Ω–µ—Ç –º–µ—Å—Ç–∞ –¥–ª—è –¥–≤—É—Ö –¥—ã—Ä–æ–∫ (—ç—Ç–æ–π –∏ –µ—â–µ –æ–¥–Ω–æ–π), —É–¥–∞–ª—è–µ–º —Å—Å—ã–ª–∫—É –Ω–∞ –Ω–µ–µ –∫–∞–∫ –∑–æ–Ω—É –≤—ã–¥–µ–ª–µ–Ω–∏—è –º–µ—Å—Ç–∞
 			FORMATTED_LOG_MEMORY("alloc_zone for sizes %u is full\n",size);
 			}
 		else
-			head->alloc_zones[hs_idx] += size; // »Ì‡˜Â Ò‰‚Ë„‡ÂÏ ‡‰ÂÒ ÁÓÌ˚ ‚˚‰ÂÎÂÌËˇ Ì‡ ‡ÁÏÂ ‚˚‰ÂÎÂÌËˇ
+			head->alloc_zones[hs_idx] += size; // –ò–Ω–∞—á–µ —Å–¥–≤–∏–≥–∞–µ–º –∞–¥—Ä–µ—Å –∑–æ–Ω—ã –≤—ã–¥–µ–ª–µ–Ω–∏—è –Ω–∞ —Ä–∞–∑–º–µ—Ä –≤—ã–¥–µ–ª–µ–Ω–∏—è
 
 		cp_mark_page_dirty(index->used_cpages,pf_spec_page * PAGE_SIZE + sp_start,SUB_PAGE_HEAD_SIZE);
 		cp_mark_page_dirty(index->used_cpages,ref,size);
@@ -274,21 +274,21 @@ element_type *idx_small_alloc(FSingSet *index,unsigned size,element_type *ref_po
 		return pagesPointer(index,ref);
 		}
 
-	// ÕÂÚ ‰˚ÓÍ Ë ˜‡ÒÚË˜ÌÓ ‚˚‰ÂÎÂÌÌÓÈ ÔÓ‰ÒÚ‡ÌËˆ˚
+	// –ù–µ—Ç –¥—ã—Ä–æ–∫ –∏ —á–∞—Å—Ç–∏—á–Ω–æ –≤—ã–¥–µ–ª–µ–Ω–Ω–æ–π –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü—ã
 	if ((pf_spec_page = head->first_pf_spec_page) == NO_PAGE)
-		{ // ÕÂÚ ÒÔÂˆÒÚ‡ÌËˆ˚ Ò ÔÛÒÚ˚ÏË ÔÓ‰ÒÚ‡ÌËˆ‡ÏË, ‚˚‰ÂÎˇÂÏ Ë ‡ÁÏÂ˜‡ÂÏ
+		{ // –ù–µ—Ç —Å–ø–µ—Ü—Å—Ç—Ä–∞–Ω–∏—Ü—ã —Å –ø—É—Å—Ç—ã–º–∏ –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü–∞–º–∏, –≤—ã–¥–µ–ª—è–µ–º –∏ —Ä–∞–∑–º–µ—á–∞–µ–º
 		pf_spec_page = idx_alloc_page(index,PT_SPECIAL);
 		if (pf_spec_page == NO_PAGE)
 			return NULL;
 		head->first_pf_spec_page = pf_spec_page;
 		page = index->pages[pf_spec_page];
 		page_head = (FSpecPageHead *)page;
-		page_head->use_mask = 1; // Ã‡ÒÍ‡ Á‡ÌˇÚ˚ı ÔÓ‰ÒÚ‡ÌËˆ
+		page_head->use_mask = 1; // –ú–∞—Å–∫–∞ –∑–∞–Ω—è—Ç—ã—Ö –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü
 		page_head->next_pf_spec_page = NO_PAGE;
 		sp_start = SPEC_PAGE_HEAD_SIZE;
 		subp_head = (FSubpageHead *)&page[SPEC_PAGE_HEAD_SIZE];
 		subpage_idx = pf_spec_page * PAGE_SIZE + SPEC_PAGE_HEAD_SIZE;
-		// œÓÏÂ˜‡ÂÏ Ó‰ÌÓ‚ÂÏÂÌÌÓ ÏÓ‰ËÙËÍ‡ˆË˛ Á‡„ÓÎÓ‚ÍÓ‚ ÒÚ‡ÌËˆ˚, ÔÓ‰ÒÚ‡ÌËˆ˚ Ë ‚˚‰ÂÎÂÌÌÓ„Ó ÏÂÒÚ‡
+		// –ü–æ–º–µ—á–∞–µ–º –æ–¥–Ω–æ–≤—Ä–µ–º–µ–Ω–Ω–æ –º–æ–¥–∏—Ñ–∏–∫–∞—Ü–∏—é –∑–∞–≥–æ–ª–æ–≤–∫–æ–≤ —Å—Ç—Ä–∞–Ω–∏—Ü—ã, –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü—ã –∏ –≤—ã–¥–µ–ª–µ–Ω–Ω–æ–≥–æ –º–µ—Å—Ç–∞
 		cp_mark_page_dirty(index->used_cpages,pf_spec_page * PAGE_SIZE,SPEC_PAGE_HEAD_SIZE + SUB_PAGE_HEAD_SIZE + size); 
 		}
 	else
@@ -299,14 +299,14 @@ element_type *idx_small_alloc(FSingSet *index,unsigned size,element_type *ref_po
 		sp_start = spnum ? (spnum * DISK_PAGE_SIZE) : SPEC_PAGE_HEAD_SIZE;
 		cp_mark_page_dirty(index->used_cpages,pf_spec_page << PAGE_SHIFT,SPEC_PAGE_HEAD_SIZE);
 		if ((page_head->use_mask |= (1LL << spnum)) == 0xFFFFFFFFFFFFFFFFLL)
-			{ // —Ú‡ÌËˆ‡ Á‡ÌˇÚ‡ ˆÂÎËÍÓÏ, ‚˚ÍË‰˚‚‡ÂÏ ËÁ ˆÂÔÓ˜ÍË ÒÔÂˆÒÚ‡ÌËˆ Ò ‰˚Í‡ÏË (ÓÌ‡ Ú‡Ï ÔÂ‚‡ˇ)
+			{ // –°—Ç—Ä–∞–Ω–∏—Ü–∞ –∑–∞–Ω—è—Ç–∞ —Ü–µ–ª–∏–∫–æ–º, –≤—ã–∫–∏–¥—ã–≤–∞–µ–º –∏–∑ —Ü–µ–ø–æ—á–∫–∏ —Å–ø–µ—Ü—Å—Ç—Ä–∞–Ω–∏—Ü —Å –¥—ã—Ä–∫–∞–º–∏ (–æ–Ω–∞ —Ç–∞–º –ø–µ—Ä–≤–∞—è)
 			index->head->first_pf_spec_page = page_head->next_pf_spec_page;
 			FORMATTED_LOG_MEMORY("special page %u has no unallocated subpages\n",pf_spec_page);
 			}
 
 		subp_head = (FSubpageHead *)&page[sp_start];
 		subpage_idx = pf_spec_page * PAGE_SIZE + sp_start;
-		cp_mark_page_dirty(index->used_cpages,subpage_idx,SUB_PAGE_HEAD_SIZE + size); // œÓÏÂ˜‡ÂÏ Ó‰ÌÓ‚ÂÏÂÌÌÓ ÏÓ‰ËÙËÍ‡ˆË˛ Á‡„ÓÎÓ‚Í‡ Ë ‚˚‰ÂÎÂÌÌÓ„Ó ÏÂÒÚ‡
+		cp_mark_page_dirty(index->used_cpages,subpage_idx,SUB_PAGE_HEAD_SIZE + size); // –ü–æ–º–µ—á–∞–µ–º –æ–¥–Ω–æ–≤—Ä–µ–º–µ–Ω–Ω–æ –º–æ–¥–∏—Ñ–∏–∫–∞—Ü–∏—é –∑–∞–≥–æ–ª–æ–≤–∫–∞ –∏ –≤—ã–¥–µ–ª–µ–Ω–Ω–æ–≥–æ –º–µ—Å—Ç–∞
 		}
 	FORMATTED_LOG_MEMORY("subpage for sizes %u allocated at %u\n",size,subpage_idx);
 	subp_head->total_count = subp_head->used_count = 1;
@@ -314,11 +314,11 @@ element_type *idx_small_alloc(FSingSet *index,unsigned size,element_type *ref_po
 	subp_head->next_sub_page = ZERO_REF;
 	subp_head->chunk_size = size;
 	ref = subpage_idx + SUB_PAGE_HEAD_SIZE;
-	head->alloc_zones[hs_idx] = ref + size; // œÓÒÎÂ‰Û˛˘ËÂ ˝ÎÂÏÂÌÚ˚ ÚÓ„Ó-ÊÂ ‡ÁÏÂ‡ ·Û‰ÛÚ ‚˚‰ÂÎˇÚ¸Òˇ Ì‡ ÚÓÈ ÊÂ ÔÓ‰ÒÚ‡ÌËˆÂ
+	head->alloc_zones[hs_idx] = ref + size; // –ü–æ—Å–ª–µ–¥—É—é—â–∏–µ —ç–ª–µ–º–µ–Ω—Ç—ã —Ç–æ–≥–æ-–∂–µ —Ä–∞–∑–º–µ—Ä–∞ –±—É–¥—É—Ç –≤—ã–¥–µ–ª—è—Ç—å—Å—è –Ω–∞ —Ç–æ–π –∂–µ –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü–µ
 	CHECK_PAGE_TYPE(index,ref,PT_SPECIAL);
 	FORMATTED_LOG_MEMORY("small hole %u allocated from begin of alloc_zone at %u\n",size,ref);
 	*ref_pointer = ref;
-	return &index->pages[pf_spec_page][sp_start + SUB_PAGE_HEAD_SIZE]; // —Ú‡ÌËˆ‡ Á‡‚Â‰ÓÏÓ ÔÓ„ÛÊÂÌ‡
+	return &index->pages[pf_spec_page][sp_start + SUB_PAGE_HEAD_SIZE]; // –°—Ç—Ä–∞–Ω–∏—Ü–∞ –∑–∞–≤–µ–¥–æ–º–æ –ø—Ä–æ–≥—Ä—É–∂–µ–Ω–∞
 	}
 
 void idx_small_free(FSingSet *index,element_type data_idx,unsigned size)
@@ -341,9 +341,9 @@ void idx_small_free(FSingSet *index,element_type data_idx,unsigned size)
 	FORMATTED_LOG_MEMORY("small hole %u deallocated at %u\n",size,data_idx);
 
 	if (subp_head->used_count == 1)
-		{ // ŒÒ‚Ó·ÓÊ‰‡ÂÏ ÔÓ‰ÒÚ‡ÌËˆÛ
+		{ // –û—Å–≤–æ–±–æ–∂–¥–∞–µ–º –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü—É
 		unsigned sp_idx = pnum * PAGE_SIZE + spstart;
-		if (subp_head->total_count != 1) // ”·Ë‡ÂÏ ËÁ ˆÂÔÓ˜ÍË ÔÓ‰ÒÚ‡ÌËˆ Ò ‰˚Í‡ÏË
+		if (subp_head->total_count != 1) // –£–±–∏—Ä–∞–µ–º –∏–∑ —Ü–µ–ø–æ—á–∫–∏ –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü —Å –¥—ã—Ä–∫–∞–º–∏
 			{
 			FSubpageHead *w_subp_head;
 			if (sp_idx == index->head->holes[hs_idx])
@@ -362,7 +362,7 @@ void idx_small_free(FSingSet *index,element_type data_idx,unsigned size)
 				}
 			}
 		if (index->head->alloc_zones[hs_idx] / DISK_PAGE_SIZE == sp_idx / DISK_PAGE_SIZE )
-			{ // ”·Ë‡ÂÏ ÒÒ˚ÎÍÛ Ì‡ alloc_zone
+			{ // –£–±–∏—Ä–∞–µ–º —Å—Å—ã–ª–∫—É –Ω–∞ alloc_zone
 			index->head->alloc_zones[hs_idx] = ZERO_REF;
 			FORMATTED_LOG_MEMORY("alloc_zone for sizes %u is empty\n",size);
 			}
@@ -421,7 +421,7 @@ void idx_small_free(FSingSet *index,element_type data_idx,unsigned size)
 		
 	element_type sub_page = pnum * PAGE_SIZE + spstart;
 	if (subp_head->used_count == subp_head->total_count)
-		{ // ƒÓ·‡‚ÎˇÂÏ ‚ ˆÂÔÓ˜ÍÛ ÔÓ‰ÒÚ‡ÌËˆ Ò ‰˚Í‡ÏË
+		{ // –î–æ–±–∞–≤–ª—è–µ–º –≤ —Ü–µ–ø–æ—á–∫—É –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü —Å –¥—ã—Ä–∫–∞–º–∏
 		FORMATTED_LOG_MEMORY("subpage at %u has holes\n",pnum * PAGE_SIZE + spstart);
 		FSubpageHead *w_subp_head;
 		if (head->holes[hs_idx] != ZERO_REF)
@@ -443,7 +443,7 @@ void idx_small_free(FSingSet *index,element_type data_idx,unsigned size)
 	cp_mark_page_dirty(index->used_cpages,sub_page,SUB_PAGE_HEAD_SIZE); 
 	}
 
-// ƒÓ·‡‚ÎˇÂÚ Í busy_size ‡ÁÏÂ Á‡„ÓÎÓ‚ÍÓ‚ ÒÚ‡ÌËˆ˚ Ë ÔÓ‰ÒÚ‡ÌËˆ, ‡ Í *free_size ‡ÁÏÂ Ò‚Ó·Ó‰Ì˚ı ÔÓ‰ÒÚ‡ÌËˆ Ë ÌÂ‚˚‰ÂÎÂÌÌÓÂ ÏÂÒÚÓ Ì‡ Á‡ÌˇÚ˚ı
+// –î–æ–±–∞–≤–ª—è–µ—Ç –∫ busy_size —Ä–∞–∑–º–µ—Ä –∑–∞–≥–æ–ª–æ–≤–∫–æ–≤ —Å—Ç—Ä–∞–Ω–∏—Ü—ã –∏ –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü, –∞ –∫ *free_size —Ä–∞–∑–º–µ—Ä —Å–≤–æ–±–æ–¥–Ω—ã—Ö –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü –∏ –Ω–µ–≤—ã–¥–µ–ª–µ–Ω–Ω–æ–µ –º–µ—Å—Ç–æ –Ω–∞ –∑–∞–Ω—è—Ç—ã—Ö
 void spec_page_support_count(FSingSet *index,unsigned pnum,FCheckData *check_data)
 	{
 	if (check_data->checked_subpages[pnum / 64] & (1LL << pnum % 64)) return;
@@ -471,12 +471,12 @@ void spec_page_support_count(FSingSet *index,unsigned pnum,FCheckData *check_dat
 			}
 	}
 
-// ƒÓ·‡‚ÎˇÂÚ Í *free_size ‡ÁÏÂ ÌÂ‡ÁÏÂ˜ÂÌÌ˚ı Û˜‡ÒÚÍÓ‚ Ë ÒÛÏÏ‡Ì˚È ‡ÁÏÂ Ï‡ÎÂÌ¸ÍËı ‰˚ÓÍ ‚ ˆÂÔÓ˜Í‡ı
+// –î–æ–±–∞–≤–ª—è–µ—Ç –∫ *free_size —Ä–∞–∑–º–µ—Ä –Ω–µ—Ä–∞–∑–º–µ—á–µ–Ω–Ω—ã—Ö —É—á–∞—Å—Ç–∫–æ–≤ –∏ —Å—É–º–º–∞—Ä–Ω—ã–π —Ä–∞–∑–º–µ—Ä –º–∞–ª–µ–Ω—å–∫–∏—Ö –¥—ã—Ä–æ–∫ –≤ —Ü–µ–ø–æ—á–∫–∞—Ö
 int check_small_holes_chains(FSingSet *index,FCheckData *check_data)
 	{
 	FSetHead *head = index->head;
 	unsigned i,pcnt = 0,pnum;
-// œÓ‚ÂˇÂÏ ˆÂÔÓ˜ÍÛ ÒÚ‡ÌËˆ Ò ÔÛÒÚ˚ÏË ÔÓ‰ÒÚ‡ÌËˆ‡ÏË
+// –ü—Ä–æ–≤–µ—Ä—è–µ–º —Ü–µ–ø–æ—á–∫—É —Å—Ç—Ä–∞–Ω–∏—Ü —Å –ø—É—Å—Ç—ã–º–∏ –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü–∞–º–∏
 	unsigned pf_spec_page = head->first_pf_spec_page,prev_pf_spec_page = NO_PAGE;
 	while (pf_spec_page != NO_PAGE)
 		{
@@ -497,7 +497,7 @@ int check_small_holes_chains(FSingSet *index,FCheckData *check_data)
 		}
 	for (i = 1; i < MIN_HOLE_SIZE; i++)
 		{
-		// œÓ‚ÂˇÂÏ ˆÂÔÓ˜ÍÛ ÔÓ‰ÒÚ‡ÌËˆ Ò ‰˚Í‡ÏË ÓÔÂ‰ÂÎÂÌÌÓ„Ó ‡ÁÏÂ‡
+		// –ü—Ä–æ–≤–µ—Ä—è–µ–º —Ü–µ–ø–æ—á–∫—É –ø–æ–¥—Å—Ç—Ä–∞–Ω–∏—Ü —Å –¥—ã—Ä–∫–∞–º–∏ –æ–ø—Ä–µ–¥–µ–ª–µ–Ω–Ω–æ–≥–æ —Ä–∞–∑–º–µ—Ä–∞
 		element_type subpage_idx = head->holes[i - 1], sp_cnt = 0;
 		element_type hole_idx,prev_sp_idx = ZERO_REF;
 		unsigned max_count = PAGE_SIZE / i;
@@ -534,7 +534,7 @@ int check_small_holes_chains(FSingSet *index,FCheckData *check_data)
 				return idx_set_formatted_error(index,"Infinite loop in holed subpages chain size %u",i),1;
 			}
 
-		// œÓ‚ÂˇÂÏ ÌÂ‡ÁÏÂ˜ÂÌÌ˚Â Û˜‡ÒÚÍË
+		// –ü—Ä–æ–≤–µ—Ä—è–µ–º –Ω–µ—Ä–∞–∑–º–µ—á–µ–Ω–Ω—ã–µ —É—á–∞—Å—Ç–∫–∏
 		element_type ref = head->alloc_zones[i - 1];
 		if (ref == ZERO_REF) continue;
 		pnum = ref >> PAGE_SHIFT;
@@ -552,9 +552,9 @@ int check_small_holes_chains(FSingSet *index,FCheckData *check_data)
 	}
 
 
-// ¡ÓÎ¸¯ËÂ ‰˚ÍË
+// –ë–æ–ª—å—à–∏–µ –¥—ã—Ä–∫–∏
 
-// ÕÂ ÓÚÏÂ˜‡ÂÚ „ˇÁÌÓÒÚ¸ Á‡„ÓÎÓ‚Í‡, ‰ÓÎÊÌ‡ ÓÚÏÂÚËÚ¸Òˇ ËÁ‚ÌÂ, ÂÒÎË ÌÛÊÌ‡
+// –ù–µ –æ—Ç–º–µ—á–∞–µ—Ç –≥—Ä—è–∑–Ω–æ—Å—Ç—å –∑–∞–≥–æ–ª–æ–≤–∫–∞, –¥–æ–ª–∂–Ω–∞ –æ—Ç–º–µ—Ç–∏—Ç—å—Å—è –∏–∑–≤–Ω–µ, –µ—Å–ª–∏ –Ω—É–∂–Ω–∞
 void _deindex_hole_first(FSingSet *index,element_type hole_idx,unsigned hs_idx,FHoleHeader *hole)
 	{
 	FAILURE_CHECK((FHoleHeader *)PAGES_POINTER(index,hole_idx) != hole,"bad hole_idx in _deindex_hole");
@@ -569,7 +569,7 @@ void _deindex_hole_first(FSingSet *index,element_type hole_idx,unsigned hs_idx,F
 		}
 	}
 
-// ”‰‡ÎˇÂÏ ‰˚ÍÛ ËÁ ˆÂÔÓ˜ÂÍ (‡ÁÏÂ >= MIN_HOLE_SIZE). ÕÂ ÓÚÏÂ˜‡ÂÚ „ˇÁÌÓÒÚË Á‡„ÓÎÓ‚Í‡
+// –£–¥–∞–ª—è–µ–º –¥—ã—Ä–∫—É –∏–∑ —Ü–µ–ø–æ—á–µ–∫ (—Ä–∞–∑–º–µ—Ä >= MIN_HOLE_SIZE). –ù–µ –æ—Ç–º–µ—á–∞–µ—Ç –≥—Ä—è–∑–Ω–æ—Å—Ç–∏ –∑–∞–≥–æ–ª–æ–≤–∫–∞
 void _deindex_hole(FSingSet *index,element_type hole_idx,unsigned hs_idx,FHoleHeader *hole)
 	{
 	FHoleHeader *w_hole;
@@ -587,7 +587,7 @@ void _deindex_hole(FSingSet *index,element_type hole_idx,unsigned hs_idx,FHoleHe
 	cp_mark_page_dirty(index->used_cpages,hole->next,HOLE_HEADER_SIZE); 
 	}
 
-// ƒÓ·‡‚ÎˇÂÏ ‰˚ÍÛ ‚ ˆÂÔÓ˜ÍË (‡ÁÏÂ >= MIN_HOLE_SIZE) ·ÂÁ ÔÓ‚ÂÓÍ Ì‡ ÔËÎÂ„‡ÌËÂ Í ÌÂ‚˚‰ÂÎÂÌÌÓÈ Ó·Î‡ÒÚË. ÕÂ ÓÚÏÂ˜‡ÂÚ „ˇÁÌÓÒÚË Á‡„ÓÎÓ‚Í‡
+// –î–æ–±–∞–≤–ª—è–µ–º –¥—ã—Ä–∫—É –≤ —Ü–µ–ø–æ—á–∫–∏ (—Ä–∞–∑–º–µ—Ä >= MIN_HOLE_SIZE) –±–µ–∑ –ø—Ä–æ–≤–µ—Ä–æ–∫ –Ω–∞ –ø—Ä–∏–ª–µ–≥–∞–Ω–∏–µ –∫ –Ω–µ–≤—ã–¥–µ–ª–µ–Ω–Ω–æ–π –æ–±–ª–∞—Å—Ç–∏. –ù–µ –æ—Ç–º–µ—á–∞–µ—Ç –≥—Ä—è–∑–Ω–æ—Å—Ç–∏ –∑–∞–≥–æ–ª–æ–≤–∫–∞
 void _index_hole(FSingSet *index,element_type data_idx,unsigned size)
 	{
 	unsigned pnum = data_idx >> PAGE_SHIFT;
@@ -627,7 +627,7 @@ element_type *idx_large_alloc(FSingSet *index,unsigned size,element_type *ref_po
 	
 	unsigned hs_idx;
 	if (size <= INDEXED_HOLESIZE_CNT && (ref = head->holes[hs_idx = size - 1]) != ZERO_REF)
-		{ // œÓÎÛ˜ËÎË ‰˚ÍÛ ÚÓ˜ÌÓ ÌÛÊÌÓ„Ó ‡ÁÏÂ‡
+		{ // –ü–æ–ª—É—á–∏–ª–∏ –¥—ã—Ä–∫—É —Ç–æ—á–Ω–æ –Ω—É–∂–Ω–æ–≥–æ —Ä–∞–∑–º–µ—Ä–∞
 		FHoleHeader *hole = (FHoleHeader *)pagesPointer(index,ref);
 		FAILURE_CHECK(hole->nonempty_signature,"Non empty space in hole chain in idx_general_alloc");
 		_deindex_hole_first(index,ref,hs_idx,hole);
@@ -637,7 +637,7 @@ element_type *idx_large_alloc(FSingSet *index,unsigned size,element_type *ref_po
 		return (element_type *)hole;
 		}
 
-	hs_idx = HOLESIZE_IDX(size + MIN_HOLE_SIZE); // ƒÓ·‡‚ÎˇÂÏ ÏËÌ. ‰˚ÍÛ ÔÓ‰ ÓÚÍÛÒ˚‚‡ÌËÂ.
+	hs_idx = HOLESIZE_IDX(size + MIN_HOLE_SIZE); // –î–æ–±–∞–≤–ª—è–µ–º –º–∏–Ω. –¥—ã—Ä–∫—É –ø–æ–¥ –æ—Ç–∫—É—Å—ã–≤–∞–Ω–∏–µ.
 	
 	unsigned bitnum = 0;
 	if (hs_idx >= 64)
@@ -658,7 +658,7 @@ element_type *idx_large_alloc(FSingSet *index,unsigned size,element_type *ref_po
 		if ((bitnum = __builtin_ffsll(head->holemask_high)))
 			{
 			hs_idx = bitnum + 63;
-idx_general_alloc_hole_found: // ÕÂ˜ËÚ‡ÂÏÓ, ÌÓ ÏËÌËÏÛÏ ÔÂÂıÓ‰Ó‚
+idx_general_alloc_hole_found: // –ù–µ—á–∏—Ç–∞–µ–º–æ, –Ω–æ –º–∏–Ω–∏–º—É–º –ø–µ—Ä–µ—Ö–æ–¥–æ–≤
 			ref = head->holes[hs_idx];
 			FAILURE_CHECK(ref == ZERO_REF,"Holes bitmask corrupted in idx_general_alloc");
 			FHoleHeader *hole = (FHoleHeader *)pagesPointer(index,ref);
@@ -673,8 +673,8 @@ idx_general_alloc_hole_found: // ÕÂ˜ËÚ‡ÂÏÓ, ÌÓ ÏËÌËÏÛÏ ÔÂÂıÓ‰Ó‚
 			}
 		}
 
-	// ƒ˚ÍË ÌÂÚ, ·ÂÂÏ ËÁ ÌÂ‡ÁÏÂ˜ÂÌÌÓÈ Ó·Î‡ÒÚË
-	unsigned hsize = (PAGE_SIZE - (head->unlocated & OFFSET_MASK)) & OFFSET_MASK; // ŒÒÚ‡ÚÓÍ ÏÂÒÚ‡ Ì‡ ÒÚ‡ÌËˆÂ, „‡ÌËˆ‡ ÒÚ‡ÌËˆ - ˝ÚÓ Á‡ÔÓÎÌÂÌÌ‡ˇ ÒÚ‡ÌËˆ‡ ‡ ÌÂ ÔÛÒÚ‡ˇ
+	// –î—ã—Ä–∫–∏ –Ω–µ—Ç, –±–µ—Ä–µ–º –∏–∑ –Ω–µ—Ä–∞–∑–º–µ—á–µ–Ω–Ω–æ–π –æ–±–ª–∞—Å—Ç–∏
+	unsigned hsize = (PAGE_SIZE - (head->unlocated & OFFSET_MASK)) & OFFSET_MASK; // –û—Å—Ç–∞—Ç–æ–∫ –º–µ—Å—Ç–∞ –Ω–∞ —Å—Ç—Ä–∞–Ω–∏—Ü–µ, –≥—Ä–∞–Ω–∏—Ü–∞ —Å—Ç—Ä–∞–Ω–∏—Ü - —ç—Ç–æ –∑–∞–ø–æ–ª–Ω–µ–Ω–Ω–∞—è —Å—Ç—Ä–∞–Ω–∏—Ü–∞ –∞ –Ω–µ –ø—É—Å—Ç–∞—è
 	if (hsize >= size)
 		{ // have an empty space
 		ref = head->unlocated;
@@ -686,7 +686,7 @@ idx_general_alloc_hole_found: // ÕÂ˜ËÚ‡ÂÏÓ, ÌÓ ÏËÌËÏÛÏ ÔÂÂıÓ‰Ó‚
 		return pagesPointer(index,ref);
 		}
 
-	if (hsize >= MIN_HOLE_SIZE) // ŒÒÚ‡ÚÓÍ ÔÛÒÚÓ„Ó ÏÂÒÚ‡ Ì‡ ÒÚ‡ÌËˆÂ ÓÚÏÂÚËÏ Í‡Í ‰˚ÍÛ, ÂÒÎË ‰Îˇ ÌÂÂ ı‚‡ÚËÚ ÏÂÒÚ‡
+	if (hsize >= MIN_HOLE_SIZE) // –û—Å—Ç–∞—Ç–æ–∫ –ø—É—Å—Ç–æ–≥–æ –º–µ—Å—Ç–∞ –Ω–∞ —Å—Ç—Ä–∞–Ω–∏—Ü–µ –æ—Ç–º–µ—Ç–∏–º –∫–∞–∫ –¥—ã—Ä–∫—É, –µ—Å–ª–∏ –¥–ª—è –Ω–µ–µ —Ö–≤–∞—Ç–∏—Ç –º–µ—Å—Ç–∞
 		_index_hole(index,head->unlocated,hsize);
 
 	unsigned pnum = idx_alloc_page(index,PT_GENERAL);
@@ -696,14 +696,14 @@ idx_general_alloc_hole_found: // ÕÂ˜ËÚ‡ÂÏÓ, ÌÓ ÏËÌËÏÛÏ ÔÂÂıÓ‰Ó‚
 	head->unlocated = ref + size;
 	cp_mark_page_dirty(index->used_cpages,ref,size);
 	*ref_pointer = ref;
-	return index->pages[pnum]; // —Ú‡ÌËˆ‡ Á‡‚Â‰ÓÏÓ ‚ Ô‡ÏˇÚË
+	return index->pages[pnum]; // –°—Ç—Ä–∞–Ω–∏—Ü–∞ –∑–∞–≤–µ–¥–æ–º–æ –≤ –ø–∞–º—è—Ç–∏
 	}
 	
 void idx_large_free(FSingSet *index,element_type data_idx,unsigned size)
 	{
 	FHoleHeader *hole;
 	FHoleFooter *hole_footer;
-	// »˘ÂÏ ‰˚ÍË ‚‚Âı Ë ‚ÌËÁ, ‰ÂËÌ‰ÂÍÒËÛÂÏ Ë ÒÎË‚‡ÂÏ
+	// –ò—â–µ–º –¥—ã—Ä–∫–∏ –≤–≤–µ—Ä—Ö –∏ –≤–Ω–∏–∑, –¥–µ–∏–Ω–¥–µ–∫—Å–∏—Ä—É–µ–º –∏ —Å–ª–∏–≤–∞–µ–º
 	unsigned pnum = data_idx / PAGE_SIZE;
 	unsigned rest = data_idx % PAGE_SIZE;
 	unsigned after_data = rest + size;
@@ -714,14 +714,14 @@ void idx_large_free(FSingSet *index,element_type data_idx,unsigned size)
 	element_type *page = pagePointer(index,pnum);
 	
 	if (rest >= MIN_HOLE_SIZE && !(hole_footer = (FHoleFooter *)&page[rest - HOLE_FOOTER_SIZE])->nonempty_signature)
-		{ // ÕËÊÂ ÔÓ ÒÚ‡ÌËˆÂ ‰˚Í‡
+		{ // –ù–∏–∂–µ –ø–æ —Å—Ç—Ä–∞–Ω–∏—Ü–µ –¥—ã—Ä–∫–∞
 		hole = (FHoleHeader *)&page[rest - hole_footer->size];
 		data_idx -= hole_footer->size;
 		size += hole_footer->size;
 		_deindex_hole(index,data_idx,HOLESIZE_IDX(hole_footer->size),hole);
 		}
 
-	if (data_idx + size == index->head->unlocated) // ƒÓ·‡‚ÎˇÂÏ Í ÌÂ‡ÁÏÂ˜ÂÌÌÓÈ Ó·Î‡ÒÚË
+	if (data_idx + size == index->head->unlocated) // –î–æ–±–∞–≤–ª—è–µ–º –∫ –Ω–µ—Ä–∞–∑–º–µ—á–µ–Ω–Ω–æ–π –æ–±–ª–∞—Å—Ç–∏
 		{ 
 		FSetHead *head = index->head;
 		head->unlocated -= size;
@@ -736,7 +736,7 @@ void idx_large_free(FSingSet *index,element_type data_idx,unsigned size)
 
 	page_rest = PAGE_SIZE - after_data;
 	if (page_rest >= MIN_HOLE_SIZE)
-		{ // ƒ‡Î¸¯Â ÔÓ ÒÚ‡ÌËˆÂ ÏÓÊÂÚ ·˚Ú¸ ‰˚Í‡, ÔÓ‚ÂËÏ
+		{ // –î–∞–ª—å—à–µ –ø–æ —Å—Ç—Ä–∞–Ω–∏—Ü–µ –º–æ–∂–µ—Ç –±—ã—Ç—å –¥—ã—Ä–∫–∞, –ø—Ä–æ–≤–µ—Ä–∏–º
 		FHoleHeader *n_hole = (FHoleHeader *)&page[after_data];
 		if (!n_hole->nonempty_signature)
 			{
@@ -744,23 +744,23 @@ void idx_large_free(FSingSet *index,element_type data_idx,unsigned size)
 			size += n_hole->size;
 			}
 		}
-	else // ƒÓ·‡‚ÎˇÂÏ ÓÒÚ‡ÚÓÍ ÒÚ‡ÌËˆ˚ Í ‰˚ÍÂ, Ú‡Ï ÌË˜Â„Ó ·˚Ú¸ ÌÂ ÏÓÊÂÚ
+	else // –î–æ–±–∞–≤–ª—è–µ–º –æ—Å—Ç–∞—Ç–æ–∫ —Å—Ç—Ä–∞–Ω–∏—Ü—ã –∫ –¥—ã—Ä–∫–µ, —Ç–∞–º –Ω–∏—á–µ–≥–æ –±—ã—Ç—å –Ω–µ –º–æ–∂–µ—Ç
 		size += page_rest;
 
 	if (size == PAGE_SIZE)
 		{ idx_free_page(index,pnum); return; }
-	// “ÂÔÂ¸ ‡ÁÏÂ˜‡ÂÏ Ë ËÌ‰ÂÍÒËÛÂÏ ÌÓ‚Û˛ ‰˚ÍÛ
+	// –¢–µ–ø–µ—Ä—å —Ä–∞–∑–º–µ—á–∞–µ–º –∏ –∏–Ω–¥–µ–∫—Å–∏—Ä—É–µ–º –Ω–æ–≤—É—é –¥—ã—Ä–∫—É
 	_index_hole(index,data_idx,size);
 	}
 
-// ƒÓ·‡‚ÎˇÂÚ Í *free_size ‡ÁÏÂ ÌÂ‡ÁÏÂ˜ÂÌÌÓ„Ó Û˜‡ÒÚÍ‡ Ë ÒÛÏÏ‡Ì˚È ‡ÁÏÂ ·ÓÎ¸¯Ëı ‰˚ÓÍ ‚ ˆÂÔÓ˜Í‡ı
+// –î–æ–±–∞–≤–ª—è–µ—Ç –∫ *free_size —Ä–∞–∑–º–µ—Ä –Ω–µ—Ä–∞–∑–º–µ—á–µ–Ω–Ω–æ–≥–æ —É—á–∞—Å—Ç–∫–∞ –∏ —Å—É–º–º–∞—Ä–Ω—ã–π —Ä–∞–∑–º–µ—Ä –±–æ–ª—å—à–∏—Ö –¥—ã—Ä–æ–∫ –≤ —Ü–µ–ø–æ—á–∫–∞—Ö
 int check_general_holes_chains(FSingSet *index,FCheckData *check_data)
 	{
 	unsigned i;
 	FSetHead *head = index->head;
 	FHoleHeader *hheader;
 	FHoleFooter *hfooter;
-	check_data->busy_general ++; // «‡ÌˇÚ˚È ˝ÎÂÏÂÌÚ ÔÓ ËÌ‰ÂÍÒÛ 0
+	check_data->busy_general ++; // –ó–∞–Ω—è—Ç—ã–π —ç–ª–µ–º–µ–Ω—Ç –ø–æ –∏–Ω–¥–µ–∫—Å—É 0
 	for (i = MIN_HOLE_SIZE; i < HOLESIZE_CNT; i++)
 		{
 		unsigned hs_idx = i - 1;

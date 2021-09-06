@@ -3,4 +3,8 @@ Major - data store format
 Minor - incompatible API changes
 Release - fixes, performance improvement, API additions
 
-0.9.0 - code was getted from internal repository with some adaptations, may be fixes in the code or documentation are needed
+0.9.1 - added some api tests, minor api and documentation fixes. Autorevert in LM_SIMPLE now works for comples API calls only, 
+        it should be nothing to do in simple calls
+
+0.9.0 - code was getted from internal repository with some adaptations, may be fixes in the code or documentation are needed. 
+        Documentation is a project for the 1.0.0 release version, and may be different from real API. 

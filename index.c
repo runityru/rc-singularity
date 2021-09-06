@@ -48,6 +48,7 @@ FSingSet *_alloc_index(void)
 	rv->used_cpages = rv->real_cpages = NULL;
 	rv->disk_index_fname = rv->disk_pages_fname = rv->mem_index_fname = rv->mem_pages_fname = NULL;
 	rv->locks_count = rv->manual_locked = 0;
+	rv->last_error[0] = 0;
 
 	for (i = 0; i < MAX_PAGES; i++)
 		{ rv->pages[i] = MAP_FAILED; }
@@ -276,8 +277,14 @@ void idx_creation_done(FSingSet *index,unsigned lock_mode)
 		index->index_fd = -1;
 		if (index->conn_flags & CF_LOW_FD_READER)
 			{
+			if (index->disk_index_fd != -1) 
+				close(index->disk_index_fd), index->disk_index_fd = -1;
+			if (index->disk_pages_fd != -1) 
+				close(index->disk_pages_fd), index->disk_pages_fd = -1;
 			}
 		}
+	if (index->conn_flags & CF_LOW_FD_READER)
+		index->read_only = 1;
 	}
 	
 FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
@@ -435,9 +442,11 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 	close(ifd);
 	if (rv->conn_flags & CF_LOW_FD_READER)
 		{
-		if (rv->disk_index_fd != -1) close(rv->disk_index_fd);
-		if (rv->disk_pages_fd != -1) close(rv->disk_pages_fd);
-		rv->disk_index_fd = rv->disk_pages_fd = -1;
+		if (rv->disk_index_fd != -1) 
+			close(rv->disk_index_fd), rv->disk_index_fd = -1;
+		if (rv->disk_pages_fd != -1) 
+			close(rv->disk_pages_fd), rv->disk_pages_fd = -1;
+		rv->read_only = 1;
 		}
 	return rv;
 	
@@ -1617,7 +1626,7 @@ int idx_revert(FSingSet *index)
 	
 	// We should map all pages before revert
 	if (index->pages_fd == -1)
-		return ERROR_IMPOSSIBLE_OPERATION;
+		return ERROR_INTERNAL; // We shoul not be here with UF_NOT_PERSISTENT
 	for (i = 0; i < index->head->pcnt; i++)
 		if ((index->pages[i] == MAP_FAILED) &&
 				(index->pages[i] = (element_type *)mmap(NULL,PAGE_SIZE_BYTES,PROT_WRITE | PROT_READ, MAP_SHARED, index->pages_fd, i * PAGE_SIZE_BYTES)) == MAP_FAILED) 

@@ -53,56 +53,76 @@ void lck_deinit_locks(FSingSet *index)
 	while (pthread_mutex_destroy(&index->lock_set->process_lock) == EBUSY); // Для robust EBUSY похоже что не возвращается, на всякий случай
 	}
 
-int lck_processLock(FSingSet *index)
+#define BAD_STATES_CHECK(KVSET)  do { if ((KVSET)->head->bad_states.some_present) \
+		{ \
+		while(__atomic_load_n(&(KVSET)->head->bad_states.states.deleted,__ATOMIC_RELAXED)) \
+			if (idx_relink_set((KVSET))) return ERROR_CONNECTION_LOST; \
+		if ((KVSET)->head->bad_states.states.corrupted) return ERROR_DATA_CORRUPTED; \
+		} } while(0)
+
+static inline int _common_processLock(FSingSet *kvset)
 	{
+	int res;
 	struct timespec ts = {0,1000000};
-	if (index->head->bad_states.some_present)
-		{
-		while(__atomic_load_n(&index->head->bad_states.states.deleted,__ATOMIC_RELAXED))
-			if (idx_relink_set(index))
-				return ERROR_CONNECTION_LOST;
-		if (index->head->bad_states.states.corrupted)
-			return ERROR_DATA_CORRUPTED;
-		}
-	if (index->read_only)
-		return ERROR_IMPOSSIBLE_OPERATION;
-	if (!index->head->use_mutex || index->manual_locked)
-		return 0; // Автоблокировки мутекса только в LM_SIMPLE
 
 lck_processLock_retry:
-	while(__atomic_load_n(&index->head->bad_states.states.deleted,__ATOMIC_RELAXED))
-		if (idx_relink_set(index))
-			return ERROR_CONNECTION_LOST;
-	// (!) Если здесь мы как-то два раза подряд потеряем CPU на 9мс, мутекс может быть удален. Пока не знаю как сделать надежнее
-	int err = pthread_mutex_timedlock(&index->lock_set->process_lock,&ts);
+	BAD_STATES_CHECK(kvset);
+	// (!) If we lost CPU for 9ms in this point twice in a row, mutex can be deleted
+	int err = pthread_mutex_timedlock(&kvset->lock_set->process_lock,&ts);
 	switch(err)
 		{
 		case ETIMEDOUT:
 			goto lck_processLock_retry;
-		case EINVAL: // Возможно при захвате удаленного мутекса
-			if (__atomic_load_n(&index->head->bad_states.states.deleted,__ATOMIC_RELAXED))
+		case EINVAL: // Can occur if mutex was deleted
+			if (__atomic_load_n(&kvset->head->bad_states.states.deleted,__ATOMIC_RELAXED))
 				goto lck_processLock_retry;
 			return ERROR_INTERNAL;
 		case EOWNERDEAD:
-			pthread_mutex_consistent(&index->lock_set->process_lock);
-			if (index->head->use_flags & UF_NOT_PERSISTENT)
-				return pthread_mutex_unlock(&index->lock_set->process_lock),ERROR_DATA_CORRUPTED;
-			if (index->head->wip)
+			pthread_mutex_consistent(&kvset->lock_set->process_lock);
+			if (kvset->head->use_flags & UF_NOT_PERSISTENT)
 				{
-				if (idx_flush(index) < 0)
-					return pthread_mutex_unlock(&index->lock_set->process_lock), ERROR_SYNC_FAILED;
+				kvset->head->bad_states.states.corrupted = 1; // Light failure, set is readable
+				pthread_mutex_unlock(&kvset->lock_set->process_lock);
+				return ERROR_DATA_CORRUPTED;
 				}
-			else if (idx_revert(index) < 0)
-				return pthread_mutex_unlock(&index->lock_set->process_lock),ERROR_DATA_CORRUPTED;
+			if (kvset->head->wip)
+				{
+				if (idx_flush(kvset) < 0)
+					return pthread_mutex_unlock(&kvset->lock_set->process_lock), ERROR_SYNC_FAILED;
+				}
+			else if ((res = idx_revert(kvset)) < 0)
+				{
+				if (res == ERROR_INTERNAL)
+					kvset->head->bad_states.states.corrupted = 1; // No disk load was made, set is still readable
+				pthread_mutex_unlock(&kvset->lock_set->process_lock);
+				return ERROR_DATA_CORRUPTED;
+				}
 		case 0:
-			if (__atomic_load_n(&index->head->bad_states.states.deleted,__ATOMIC_RELAXED))
+			if (__atomic_load_n(&kvset->head->bad_states.states.deleted,__ATOMIC_RELAXED))
 				goto lck_processLock_retry; 
 			return 0;	
 		}
 	return ERROR_INTERNAL;
 	}
 
-int lck_processUnlock(FSingSet *index,int op_result)
+int lck_processLock(FSingSet *kvset)
+	{
+	if (kvset->manual_locked) // kvset can't be deleted while locked by mutex
+		return (kvset->head->bad_states.states.corrupted) ? ERROR_DATA_CORRUPTED : 0;
+	if (kvset->read_only)
+		{
+		BAD_STATES_CHECK(kvset);
+		return ERROR_IMPOSSIBLE_OPERATION;
+		}
+	if (!kvset->head->use_mutex) 
+		{ // No mutex autolock, exept in LM_SIMPLE
+		BAD_STATES_CHECK(kvset);
+		return 0;
+		} 
+	return _common_processLock(kvset);
+	}
+
+int lck_processUnlock(FSingSet *index,int op_result,int autorevert)
 	{
 	if (!index->head->use_mutex || index->manual_locked) 
 		return op_result; 
@@ -110,64 +130,26 @@ int lck_processUnlock(FSingSet *index,int op_result)
 	if (index->head->check_mutex)
 		while (__atomic_load_n(&index->locks_count,__ATOMIC_ACQUIRE))
 			_mm_pause();
-	int res = (op_result >= 0) ? idx_flush(index) : idx_revert(index);
+	int res = 0;
+	if (op_result >= 0)
+		res = idx_flush(index);
+	else if (autorevert)
+		res = idx_revert(index); // We do not set data_currupted here, if revert fail before actual job start
 	pthread_mutex_unlock(&index->lock_set->process_lock);
 	return (res < 0) ? res : op_result;
 	}
 
-int lck_manualLock(FSingSet *index)
+int lck_manualLock(FSingSet *kvset)
 	{
-	struct timespec ts = {0,1000000};
-	if (index->head->bad_states.some_present)
+	if (kvset->read_only || kvset->manual_locked)
 		{
-		while(__atomic_load_n(&index->head->bad_states.states.deleted,__ATOMIC_RELAXED))
-			if (idx_relink_set(index))
-				return ERROR_CONNECTION_LOST;
-		if (index->head->bad_states.states.corrupted)
-			return ERROR_DATA_CORRUPTED;
-		}
-	if (index->read_only || index->manual_locked) // manual_locked - защита от повторного лока в одном потоке
+		BAD_STATES_CHECK(kvset);
 		return ERROR_IMPOSSIBLE_OPERATION;
-
-lck_manualLock_retry:
-	while(__atomic_load_n(&index->head->bad_states.states.deleted,__ATOMIC_RELAXED))
-		if (idx_relink_set(index))
-			return ERROR_CONNECTION_LOST;
-	// (!) Если здесь мы как-то два раза подряд потеряем CPU на 9мс, мутекс может быть удален. Пока не знаю как сделать надежнее
-	int err = pthread_mutex_timedlock(&index->lock_set->process_lock,&ts);
-	switch(err)
-		{
-		case ETIMEDOUT:
-			goto lck_manualLock_retry;
-		case EINVAL:
-			if (__atomic_load_n(&index->head->bad_states.states.deleted,__ATOMIC_RELAXED))
-				goto lck_manualLock_retry;
-			return ERROR_INTERNAL;
-		case EOWNERDEAD:
-			pthread_mutex_consistent(&index->lock_set->process_lock);
-			if (index->head->use_flags & UF_NOT_PERSISTENT)
-				goto lck_processLock_corrupted;
-			if (index->head->wip)
-				{
-				if (idx_flush(index) < 0)
-					{
-					pthread_mutex_unlock(&index->lock_set->process_lock);
-					return ERROR_SYNC_FAILED;
-					}
-				}
-			else if (idx_revert(index) < 0)
-				{
-lck_processLock_corrupted:
-				pthread_mutex_unlock(&index->lock_set->process_lock);
-				return ERROR_DATA_CORRUPTED;
-				}				
-		case 0:
-			if (__atomic_load_n(&index->head->bad_states.states.deleted,__ATOMIC_RELAXED))
-				goto lck_manualLock_retry; 
-			index->manual_locked = 1;
-			return 0;	
 		}
-	return ERROR_INTERNAL;
+
+	int res = _common_processLock(kvset);
+	if (!res) kvset->manual_locked = 1;
+	return res;
 	}
 
 int lck_manualUnlock(FSingSet *index,int commit,uint32_t *saved)
@@ -182,7 +164,7 @@ int lck_manualUnlock(FSingSet *index,int commit,uint32_t *saved)
 		}
 	else
 		index->manual_locked = 0;
-	int res = 0;
+	int res;
 	if (commit)
 		{
 		res = idx_flush(index);
@@ -193,7 +175,10 @@ int lck_manualUnlock(FSingSet *index,int commit,uint32_t *saved)
 			*saved = res;
 		return 0;
 		}
-	res = idx_revert(index);
+	if (index->head->use_flags & UF_NOT_PERSISTENT)
+		res = ERROR_IMPOSSIBLE_OPERATION;
+	else
+		res = idx_revert(index);
 	pthread_mutex_unlock(&index->lock_set->process_lock);
 	return res;
 	}
