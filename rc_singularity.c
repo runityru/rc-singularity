@@ -311,7 +311,7 @@ int sing_diff_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file,const ch
 		goto diff_exit; 
 		}
 
-	fileParseFunc fpc = (kvset->conn_flags & CF_MULTICORE_PARSE) ? fp_parseFile : fp_parseFile2;
+	fileParseFunc fpc = (kvset->conn_flags & CF_MULTICORE_PARSE) ? fp_parseFile2 : fp_parseFile;
 	parsedError ecb = (kvset->conn_flags & CF_PARSE_ERRORS) ? std_parse_error : NULL;
 
 	rv = lck_processLock(kvset);
