@@ -360,16 +360,6 @@ static inline int _init_tdata(FSingSet *kvset,FTransformData *tdata,const char *
 	return 0;
 	}
 
-int sing_get_value_cb(FSingSet *kvset,const char *key,CSingValueAllocator vacb,void **value,unsigned *vsize)
-	{
-	SIMPLE_CALL_CHECKUP(kvset);
-	FTransformData tdata;
-	FReaderLock rlock = {0,0,0};
-	if(_init_tdata(kvset,&tdata,key,MAX_KEY_SOURCE,NULL,0))
-		return *value = NULL, *vsize = 0, RESULT_IMPOSSIBLE_KEY;
-	return idx_key_get_cb(kvset,&tdata,&rlock,vacb,value,vsize);
-	}
-
 int sing_get_value_cb_n(FSingSet *kvset,const char *key,unsigned ksize,CSingValueAllocator vacb,void **value,unsigned *vsize)
 	{
 	SIMPLE_CALL_CHECKUP(kvset);
@@ -380,11 +370,11 @@ int sing_get_value_cb_n(FSingSet *kvset,const char *key,unsigned ksize,CSingValu
 	return idx_key_get_cb(kvset,&tdata,&rlock,vacb,value,vsize);
 	}
 
-int sing_get_values_cb(FSingSet *kvset, const char *const *keys, unsigned count, CSingValueAllocator vacb, void **values, unsigned *vsizes, int *results)
+int sing_get_values_cb_n(FSingSet *kvset,const char *const *keys,const unsigned *ksizes,unsigned count, CSingValueAllocator vacb, void **values, unsigned *vsizes, int *results)
 	{
 	SIMPLE_CALL_CHECKUP(kvset);
 	FTransformData tdata[2];
-	FTransformData *tdatas[2] = {NULL,&tdata[0]};
+	FTransformData *tdatas[2] = {&tdata[0],&tdata[1]};
 	FReaderLock rlock = {0,0,0};
 	unsigned i = 1,rv = 0;
 	if (!count)
@@ -392,61 +382,47 @@ int sing_get_values_cb(FSingSet *kvset, const char *const *keys, unsigned count,
 	if (count > 1)
 		rlock.keep = 1;
 
-	if(_init_tdata(kvset,tdatas[1],keys[0],MAX_KEY_SOURCE,NULL,0))
-		values[0] = NULL, vsizes[0] = 0, results[0] = RESULT_IMPOSSIBLE_KEY, tdatas[1] = NULL;
-	else
+	if(!_init_tdata(kvset,tdatas[1],keys[0],ksizes ? ksizes[0] : 0xFFFFFFFF,NULL,0))
 		__builtin_prefetch(&kvset->hash_table[(tdatas[1]->hash >> 1) * KEYHEADS_IN_BLOCK]);
+	else
+		values[0] = NULL, vsizes[0] = 0, results[0] = RESULT_IMPOSSIBLE_KEY, tdatas[1] = NULL;
 	for (i = 1; i < count; i++)
 		{
-		if(_init_tdata(kvset,tdatas[0],keys[0],MAX_KEY_SOURCE,NULL,0))
-			values[i] = NULL, vsizes[i] = 0, results[i] = RESULT_IMPOSSIBLE_KEY, tdatas[0] = NULL;
-		else
+		if(!_init_tdata(kvset,tdatas[0],keys[i],ksizes ? ksizes[i] : 0xFFFFFFFF,NULL,0))
 			__builtin_prefetch(&kvset->hash_table[(tdatas[0]->hash >> 1) * KEYHEADS_IN_BLOCK]);
+		else
+			values[i] = NULL, vsizes[i] = 0, results[i] = RESULT_IMPOSSIBLE_KEY, tdatas[0] = NULL;
 		if (tdatas[1])
 			{
-			int res = idx_key_get_cb(kvset,tdatas[1],&rlock,vacb,values[i-1],&vsizes[i-1]);
-			if (res < 0)
+			int res = results[i-1] = idx_key_get_cb(kvset,tdatas[1],&rlock,vacb,&values[i-1],&vsizes[i-1]);
+			if (__builtin_expect(res < 0,0))
 				{
 				if (rlock.keeped)
-					lck_readerUnlock(kvset->lock_set,&rlock);
+					rlock.keep = 0,lck_readerUnlock(kvset->lock_set,&rlock);
+				values[i-1] = NULL, vsizes[i-1] = 0;
+				do
+					results[i] = res, values[i] = NULL, vsizes[i] = 0;
+				while (++i < count);
 				return res;
 				}
-			if (!(results[i-1] = res))
+			if (!res)
 				rv++;
-			else if (res == RESULT_KEY_NOT_FOUND)
-				values[i - 1] = NULL, vsizes[i - 1] = 0;
 			}
 		tdatas[1] = tdatas[0];
-		tdatas[0] = &tdata[1 - i % 2];
+		tdatas[0] = &tdata[i % 2];
 		}
 	rlock.keep = 0;
 	if (tdatas[1])
 		{
-		int res = idx_key_get_cb(kvset,tdatas[1],&rlock,vacb,values[i-1],&vsizes[i-1]);
-		if (res < 0)
-			{
-			if (rlock.keeped)
-				lck_readerUnlock(kvset->lock_set,&rlock);
-			return res;
-			}
-		if (!(results[i-1] = res))
+		int res = results[i-1] = idx_key_get_cb(kvset,tdatas[1],&rlock,vacb,&values[i-1],&vsizes[i-1]);
+		if (__builtin_expect(res < 0,0))
+			return values[i-1] = NULL, vsizes[i-1] = 0, res;
+		if (!res)
 			rv++;
-		else if (res == RESULT_KEY_NOT_FOUND)
-			values[i - 1] = NULL, vsizes[i - 1] = 0;
 		}
 	else if (rlock.keeped)
 		lck_readerUnlock(kvset->lock_set,&rlock);
 	return rv;
-	}
-
-int sing_get_value(FSingSet *kvset,const char *key,void *value,unsigned *vsize)
-	{
-	SIMPLE_CALL_CHECKUP(kvset);
-	FTransformData tdata;
-	FReaderLock rlock = {0,0,0};
-	if(_init_tdata(kvset,&tdata,key,MAX_KEY_SOURCE,NULL,0))
-		return *vsize = 0, RESULT_IMPOSSIBLE_KEY;
-	return idx_key_get(kvset,&tdata,&rlock,value,vsize);
 	}
 
 int sing_get_value_n(FSingSet *kvset,const char *key,unsigned ksize,void *value,unsigned *vsize)
@@ -459,11 +435,11 @@ int sing_get_value_n(FSingSet *kvset,const char *key,unsigned ksize,void *value,
 	return idx_key_get(kvset,&tdata,&rlock,value,vsize);
 	}
 
-int sing_get_values(FSingSet *kvset, const char *const *keys, unsigned count, void *const *values, unsigned *vsizes, int *results)
+int sing_get_values_n(FSingSet *kvset, const char *const *keys,const unsigned *ksizes,unsigned count,void *const *values, unsigned *vsizes, int *results)
 	{
 	SIMPLE_CALL_CHECKUP(kvset);
 	FTransformData tdata[2];
-	FTransformData *tdatas[2] = {&tdata[1],&tdata[0]};
+	FTransformData *tdatas[2] = {&tdata[0],&tdata[1]};
 	FReaderLock rlock = {0,0,0};
 	unsigned i = 1,rv = 0;
 	if (!count)
@@ -471,61 +447,47 @@ int sing_get_values(FSingSet *kvset, const char *const *keys, unsigned count, vo
 	if (count > 1)
 		rlock.keep = 1;
 
-	if(_init_tdata(kvset,tdatas[1],keys[0],MAX_KEY_SOURCE,NULL,0))
-		results[0] = RESULT_IMPOSSIBLE_KEY, vsizes[0] = 0, tdatas[1] = NULL;
-	else
+	if(!_init_tdata(kvset,tdatas[1],keys[0],ksizes ? ksizes[0] : 0xFFFFFFFF,NULL,0))
 		__builtin_prefetch(&kvset->hash_table[(tdatas[1]->hash >> 1) * KEYHEADS_IN_BLOCK]);
+	else
+		results[0] = RESULT_IMPOSSIBLE_KEY, vsizes[0] = 0, tdatas[1] = NULL;
 	for (i = 1; i < count; i++)
 		{
-		if(_init_tdata(kvset,tdatas[0],keys[i],MAX_KEY_SOURCE,NULL,0))
-			results[i] = RESULT_IMPOSSIBLE_KEY, vsizes[i] = 0, tdatas[0] = NULL;
-		else
+		if(!_init_tdata(kvset,tdatas[0],keys[i],ksizes ? ksizes[i] : 0xFFFFFFFF,NULL,0))
 			__builtin_prefetch(&kvset->hash_table[(tdatas[0]->hash >> 1) * KEYHEADS_IN_BLOCK]);
+		else
+			results[i] = RESULT_IMPOSSIBLE_KEY, vsizes[i] = 0, tdatas[0] = NULL;
 		if (tdatas[1])
 			{
-			int res = idx_key_get(kvset,tdatas[1],&rlock,values[i-1],&vsizes[i-1]);
-			if (res < 0)
+			int res = results[i-1] = idx_key_get(kvset,tdatas[1],&rlock,values[i-1],&vsizes[i-1]);
+			if (__builtin_expect(res < 0,0))
 				{
 				if (rlock.keeped)
-					lck_readerUnlock(kvset->lock_set,&rlock);
+					rlock.keep = 0,lck_readerUnlock(kvset->lock_set,&rlock);
+				vsizes[i-1] = 0;
+				do
+					results[i] = res, vsizes[i] = 0;
+				while (++i < count);
 				return res;
 				}
-			if (!(results[i-1] = res))
+			if (!res)
 				rv++;
-			else if (res == RESULT_KEY_NOT_FOUND)
-				vsizes[i - 1] = 0;
 			}
 		tdatas[1] = tdatas[0];
-		tdatas[0] = &tdata[1 - i % 2];
+		tdatas[0] = &tdata[i % 2];
 		}
 	rlock.keep = 0;
 	if (tdatas[1])
 		{
-		int res = idx_key_get(kvset,tdatas[1],&rlock,values[i-1],&vsizes[i-1]);
-		if (res < 0)
-			{
-			if (rlock.keeped)
-				lck_readerUnlock(kvset->lock_set,&rlock);
-			return res;
-			}
-		if (!(results[i-1] = res))
+		int res = results[i-1] = idx_key_get(kvset,tdatas[1],&rlock,values[i-1],&vsizes[i-1]);
+		if (__builtin_expect(res < 0,0))
+			return vsizes[i-1] = 0,res;
+		if (!res)
 			rv++;
-		else if (res == RESULT_KEY_NOT_FOUND)
-			vsizes[i - 1] = 0;
 		}
 	else if (rlock.keeped)
 		lck_readerUnlock(kvset->lock_set,&rlock);
 	return rv;
-	}
-
-int sing_key_present(FSingSet *kvset,const char *key)
-	{
-	SIMPLE_CALL_CHECKUP(kvset);
-	FTransformData tdata;
-	FReaderLock rlock = {0,0,0};
-	if(_init_tdata(kvset,&tdata,key,MAX_KEY_SOURCE,NULL,0))
-		return RESULT_IMPOSSIBLE_KEY;
-	return idx_key_search(kvset,&tdata,&rlock);
 	}
 
 int sing_key_present_n(FSingSet *kvset,const char *key,unsigned ksize)
@@ -536,6 +498,70 @@ int sing_key_present_n(FSingSet *kvset,const char *key,unsigned ksize)
 	if(_init_tdata(kvset,&tdata,key,ksize,NULL,0))
 		return RESULT_IMPOSSIBLE_KEY;
 	return idx_key_search(kvset,&tdata,&rlock);
+	}
+
+int sing_keys_present_n(FSingSet *kvset, const char *const *keys, const unsigned *ksizes, unsigned count, int *results)
+	{
+	SIMPLE_CALL_CHECKUP(kvset);
+	FTransformData tdata[2];
+	FTransformData *tdatas[2] = {&tdata[0],&tdata[1]};
+	FReaderLock rlock = {0,0,0};
+	unsigned i = 1,rv = 0;
+	if (!count)
+		return 0;
+	if (count > 1)
+		rlock.keep = 1;
+
+	if(!_init_tdata(kvset,tdatas[1],keys[0],ksizes ? ksizes[0] : 0xFFFFFFFF,NULL,0))
+		__builtin_prefetch(&kvset->hash_table[(tdatas[1]->hash >> 1) * KEYHEADS_IN_BLOCK]);
+	else
+		results[0] = RESULT_IMPOSSIBLE_KEY, tdatas[1] = NULL;
+	for (i = 1; i < count; i++)
+		{
+		if(!_init_tdata(kvset,tdatas[0],keys[i],ksizes ? ksizes[i] : 0xFFFFFFFF,NULL,0))
+			__builtin_prefetch(&kvset->hash_table[(tdatas[0]->hash >> 1) * KEYHEADS_IN_BLOCK]);
+		else
+			results[i] = RESULT_IMPOSSIBLE_KEY, tdatas[0] = NULL;
+		if (tdatas[1])
+			{
+			int res = results[i-1] = idx_key_search(kvset,tdatas[1],&rlock);
+			if (__builtin_expect(res < 0,0))
+				{
+				if (rlock.keeped)
+					rlock.keep = 0,lck_readerUnlock(kvset->lock_set,&rlock);
+				do
+					results[i] = res;
+				while (++i < count);
+				return res;
+				}
+			if (!res)
+				rv++;
+			}
+		tdatas[1] = tdatas[0];
+		tdatas[0] = &tdata[i % 2];
+		}
+	rlock.keep = 0;
+	if (tdatas[1])
+		{
+		int res = results[i-1] = idx_key_search(kvset,tdatas[1],&rlock);
+		if (__builtin_expect(res < 0,0))
+			return res;
+		if (!res)
+			rv++;
+		}
+	else if (rlock.keeped)
+		lck_readerUnlock(kvset->lock_set,&rlock);
+	return rv;
+	}
+
+int sing_value_equal_n(FSingSet *kvset, const char *key, unsigned ksize, void *value, unsigned vsize)
+	{
+	SIMPLE_CALL_CHECKUP(kvset);
+	FTransformData tdata;
+	FReaderLock rlock = {0,0,0};
+	if(_init_tdata(kvset,&tdata,key,ksize,NULL,0))
+		return RESULT_IMPOSSIBLE_KEY;
+	return idx_key_compare(kvset,&tdata,&rlock,value,vsize);
 	}
 
 int sing_set_key(FSingSet *kvset,const char *key,void *value,unsigned vsize)

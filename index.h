@@ -165,6 +165,7 @@ typedef struct FReaderLockTg FReaderLock;
 	
 int idx_key_search(FSingSet *index,FTransformData *tdata,FReaderLock *rlock);
 int idx_key_get(FSingSet *index,FTransformData *tdata,FReaderLock *rlock,void *value_dst,unsigned *value_dst_size);
+int idx_key_compare(FSingSet *index,FTransformData *tdata,FReaderLock *rlock,void *value_cmp,unsigned value_cmp_size);
 
 typedef void *(CSingValueAllocator)(unsigned size);
 int idx_key_get_cb(FSingSet *index,FTransformData *tdata,FReaderLock *rlock,CSingValueAllocator vacb,void **value,unsigned *value_size);

@@ -120,6 +120,8 @@ static inline void pchain_clear_locks(FSingSet *index,FTransformData **tdatas,in
 		lck_chainUnlock(index,tdatas[2]->hash);
 	}
 
+int std_process(FSingSet *index,FTransformData *tdata, void *cb_param) __attribute__((regparm(3)));
+
 static inline int pchain_step(FSingSet *index,FTransformData **tdatas,processParsedItem pcb,void *cb_param)
 	{
 	unsigned res;
@@ -134,7 +136,7 @@ static inline int pchain_step(FSingSet *index,FTransformData **tdatas,processPar
 			lck_chainLock(index,tdatas[1]->hash);
 		if (got_lock)
 			{
-			if ((res = (*pcb)(index,tdatas[1],cb_param)))
+			if ((res = std_process(index,tdatas[1],cb_param)))
 				{ // Закончили действие на этом шаге
 				if (__builtin_expect(res & KS_ERROR,0))
 					return pchain_clear_locks(index,tdatas,res),1;
@@ -148,7 +150,7 @@ static inline int pchain_step(FSingSet *index,FTransformData **tdatas,processPar
 		}
 	if (!tdatas[2])
 		return 0;
-	res = (*pcb)(index,tdatas[2],cb_param);
+	res = std_process(index,tdatas[2],cb_param);
 	if (__builtin_expect(res & KS_ERROR,0))
 		return pchain_clear_locks(index,tdatas,res),1;
 	idx_op_finalize(index,tdatas[2],res);
@@ -162,7 +164,7 @@ static inline int pchain_step(FSingSet *index,FTransformData **tdatas,processPar
 		lck_chainUnlock(index,tdatas[2]->hash);
 		lck_chainLock(index,tdatas[1]->hash);
 		}
-	if ((res = (*pcb)(index,tdatas[1],cb_param)))
+	if ((res = std_process(index,tdatas[1],cb_param)))
 		{ 
 		if (__builtin_expect(res & KS_ERROR,0))
 			{

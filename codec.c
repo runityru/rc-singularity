@@ -213,6 +213,8 @@ int cd_transform(const char *buffer,unsigned src_max_size,FTransformData *tdata)
 	{
 	int i;
 	unsigned char *result = tdata->transformed_key, nc;
+	if (src_max_size > MAX_KEY_SOURCE)
+		src_max_size = MAX_KEY_SOURCE;
 	
 	for (i = 0; i < src_max_size && (nc = CHAR_CODES[(unsigned char)buffer[i]]); i++)
 		result[i] = nc;
