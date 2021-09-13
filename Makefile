@@ -33,8 +33,10 @@ locks_tests:
 	gcc $(DEBUG) $(COMMON_OPTIONS) tests/locks.c $(BASE_SET) -o tests/locks $(LIBS)
 api_tests:
 	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/api_ops.c $(BASE_SET) -o tests/api_ops $(LIBS)
+file_tests:
+	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/file_ops.c $(BASE_SET) -o tests/file_ops $(LIBS)
 
-autotests: memory_tests keyheads_tests index_ops_tests codec_ops_tests locks_tests api_tests
+autotests: memory_tests keyheads_tests index_ops_tests codec_ops_tests locks_tests api_tests file_tests
 	
 test:
 	./tests/memory
@@ -43,6 +45,7 @@ test:
 	./tests/codec_ops
 	./tests/locks
 	./tests/api_ops
+	./tests/file_ops
 
 install:
 	mkdir -p /var/lib/rc-singularity
