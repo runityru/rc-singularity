@@ -102,51 +102,67 @@ int sing_intersect_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file,con
 int sing_dump(FSingSet *kvset,char *outfile,unsigned flags);
 
 typedef void *(CSingValueAllocator)(unsigned size);
-int sing_get_value_cb(FSingSet *kvset,const char *key,CSingValueAllocator vacb,void **value,unsigned *vsize);
 int sing_get_value_cb_n(FSingSet *kvset,const char *key,unsigned ksize,CSingValueAllocator vacb,void **value,unsigned *vsize);
-int sing_get_values_cb(FSingSet *kvset,const char *const *keys,unsigned count,CSingValueAllocator vacb,void **values,unsigned *vsizes,int *results);
+static inline int sing_get_value_cb(FSingSet *kvset,const char *key,CSingValueAllocator vacb,void **value,unsigned *vsize)
+	{ return sing_get_value_cb_n(kvset,key,0xFFFFFFFF,vacb,value,vsize); }
+
 int sing_get_values_cb_n(FSingSet *kvset,const char *const *keys,const unsigned *ksizes,unsigned count,CSingValueAllocator vacb,void **values,unsigned *vsizes,int *results);
+static inline int sing_get_values_cb(FSingSet *kvset,const char *const *keys,unsigned count,CSingValueAllocator vacb,void **values,unsigned *vsizes,int *results)
+	{ return sing_get_values_cb_n(kvset,keys,NULL,count,vacb,values,vsizes,results); }
 
-int sing_get_value(FSingSet *kvset,const char *key,void *value,unsigned *vsize);
 int sing_get_value_n(FSingSet *kvset,const char *key,unsigned ksize,void *value,unsigned *vsize);
-int sing_get_values(FSingSet *kvset,const char *const *keys,unsigned count,void *const *values,unsigned *vsizes,int *results);
+static inline int sing_get_value(FSingSet *kvset,const char *key,void *value,unsigned *vsize)
+	{ return sing_get_value_n(kvset,key,0xFFFFFFFF,value,vsize); }
 int sing_get_values_n(FSingSet *kvset,const char *const *keys,const unsigned *ksizes,unsigned count,void *const *values,unsigned *vsizes,int *results);
-
-static inline int sing_get_value32i(FSingSet *kvset,const char *key, int32_t *value)
-	{ unsigned vsize = 4; *value = 0; int rv = sing_get_value(kvset,key,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
-static inline int sing_get_value32u(FSingSet *kvset,const char *key, uint32_t *value)
-	{ unsigned vsize = 4; *value = 0; int rv = sing_get_value(kvset,key,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
-static inline int sing_get_value32f(FSingSet *kvset,const char *key, float *value)
-	{ unsigned vsize = 4; *value = 0; int rv = sing_get_value(kvset,key,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
-static inline int sing_get_value64i(FSingSet *kvset,const char *key, int64_t *value)
-	{ unsigned vsize = 8; *value = 0; int rv = sing_get_value(kvset,key,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
-static inline int sing_get_value64u(FSingSet *kvset,const char *key, uint64_t *value)
-	{ unsigned vsize = 8; *value = 0; int rv = sing_get_value(kvset,key,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
-static inline int sing_get_value64d(FSingSet *kvset,const char *key, double *value)
-	{ unsigned vsize = 8; *value = 0; int rv = sing_get_value(kvset,key,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
-static inline int sing_get_pointer(FSingSet *kvset,const char *key, void **value)
-	{ unsigned vsize = sizeof(size_t); *value = NULL; int rv = sing_get_value(kvset,key,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
+static inline int sing_get_values(FSingSet *kvset,const char *const *keys,unsigned count,void *const *values,unsigned *vsizes,int *results)
+	{ return sing_get_values_n(kvset,keys,NULL,count,values,vsizes,results); }
 
 static inline int sing_get_value32i_n(FSingSet *kvset,const char *key,unsigned ksize,int32_t *value)
 	{ unsigned vsize = 4; int rv = sing_get_value_n(kvset,key,ksize,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
+static inline int sing_get_value32i(FSingSet *kvset,const char *key, int32_t *value)
+	{ unsigned vsize = 4; *value = 0; int rv = sing_get_value_n(kvset,key,0xFFFFFFFF,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
+
 static inline int sing_get_value32u_n(FSingSet *kvset,const char *key,unsigned ksize,uint32_t *value)
 	{ unsigned vsize = 4; int rv = sing_get_value_n(kvset,key,ksize,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
+static inline int sing_get_value32u(FSingSet *kvset,const char *key, uint32_t *value)
+	{ unsigned vsize = 4; *value = 0; int rv = sing_get_value_n(kvset,key,0xFFFFFFFF,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
+
 static inline int sing_get_value32f_n(FSingSet *kvset,const char *key,unsigned ksize,float *value)
 	{ unsigned vsize = 4; int rv = sing_get_value_n(kvset,key,ksize,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
+static inline int sing_get_value32f(FSingSet *kvset,const char *key, float *value)
+	{ unsigned vsize = 4; *value = 0; int rv = sing_get_value_n(kvset,key,0xFFFFFFFF,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
+
 static inline int sing_get_value64i_n(FSingSet *kvset,const char *key,unsigned ksize,int64_t *value)
 	{ unsigned vsize = 8; int rv = sing_get_value_n(kvset,key,ksize,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
+static inline int sing_get_value64i(FSingSet *kvset,const char *key, int64_t *value)
+	{ unsigned vsize = 8; *value = 0; int rv = sing_get_value_n(kvset,key,0xFFFFFFFF,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
+
 static inline int sing_get_value64u_n(FSingSet *kvset,const char *key,unsigned ksize,uint64_t *value)
 	{ unsigned vsize = 8; int rv = sing_get_value_n(kvset,key,ksize,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
+static inline int sing_get_value64u(FSingSet *kvset,const char *key, uint64_t *value)
+	{ unsigned vsize = 8; *value = 0; int rv = sing_get_value_n(kvset,key,0xFFFFFFFF,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
+
 static inline int sing_get_value64d_n(FSingSet *kvset,const char *key,unsigned ksize,double *value)
 	{ unsigned vsize = 8; int rv = sing_get_value_n(kvset,key,ksize,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
+static inline int sing_get_value64d(FSingSet *kvset,const char *key, double *value)
+	{ unsigned vsize = 8; *value = 0; int rv = sing_get_value_n(kvset,key,0xFFFFFFFF,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
+
 static inline int sing_get_pointer_n(FSingSet *kvset,const char *key,unsigned ksize,void **value)
 	{ unsigned vsize = sizeof(size_t); int rv = sing_get_value_n(kvset,key,ksize,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
+static inline int sing_get_pointer(FSingSet *kvset,const char *key, void **value)
+	{ unsigned vsize = sizeof(size_t); *value = NULL; int rv = sing_get_value_n(kvset,key,0xFFFFFFFF,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
 
-int sing_key_present(FSingSet *kvset,const char *key);
 int sing_key_present_n(FSingSet *kvset,const char *key,unsigned ksize);
+static inline int sing_key_present(FSingSet *kvset,const char *key)
+	{ return sing_key_present_n(kvset,key,0xFFFFFFFF); }
 
-int sing_value_equal(FSingSet *kvset,const char *key,const void *value,unsigned vsize);
-int sing_value_equal_n(FSingSet *kvset,const char *key,unsigned ksize,const void *value,unsigned vsize);
+int sing_keys_present_n(FSingSet *kvset,const char *const *keys,const unsigned *ksizes,unsigned count,int *results);
+static inline int sing_keys_present(FSingSet *kvset,const char *const *keys,unsigned count,int *results)
+	{ return sing_keys_present_n(kvset,keys,NULL,count,results); }
+
+int sing_value_equal_n(FSingSet *kvset,const char *key,unsigned ksize,void *value,unsigned vsize);
+static inline int sing_value_equal(FSingSet *kvset,const char *key,void *value,unsigned vsize)
+	{ return sing_value_equal_n(kvset,key,0xFFFFFFFF,value,vsize); }
 
 int sing_set_key(FSingSet *kvset,const char *key,void *value,unsigned vsize);
 

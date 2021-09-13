@@ -675,7 +675,7 @@ int idx_key_get(FSingSet *index,FTransformData *tdata,FReaderLock *rlock,void *v
 	do
 		{
 		if (!(found = _key_search(index,tdata,rlock)))
-			return RESULT_KEY_NOT_FOUND;
+			return *value_dst_size = 0,RESULT_KEY_NOT_FOUND;
 		value = _get_value(index,found,&vsrc_size);
 		if (vsrc_size > *value_dst_size)
 			tocpy = *value_dst_size, rv = RESULT_SMALL_BUFFER;
@@ -689,6 +689,24 @@ int idx_key_get(FSingSet *index,FTransformData *tdata,FReaderLock *rlock,void *v
 	return rv;
 	}
 
+int idx_key_compare(FSingSet *index, FTransformData *tdata, FReaderLock *rlock, void *value_cmp, unsigned value_cmp_size)
+	{
+	FKeyHead *found;
+	unsigned vsrc_size;
+	void *value;
+	
+	do
+		{
+		if (!(found = _key_search(index,tdata,rlock)))
+			return RESULT_KEY_NOT_FOUND;
+		value = _get_value(index,found,&vsrc_size);
+		if (vsrc_size != value_cmp_size || memcmp(value_cmp,value,value_cmp_size))
+			return RESULT_VALUE_DIFFER;
+		} 
+	while (!lck_readerUnlock(index->lock_set,rlock));
+	return 0;
+	}
+
 int idx_key_get_cb(FSingSet *index,FTransformData *tdata,FReaderLock *rlock,CSingValueAllocator vacb,void **value,unsigned *vsize)
 	{
 	FKeyHead *found;
@@ -698,7 +716,7 @@ int idx_key_get_cb(FSingSet *index,FTransformData *tdata,FReaderLock *rlock,CSin
 	do
 		{
 		if (!(found = _key_search(index,tdata,rlock)))
-			return RESULT_KEY_NOT_FOUND;
+			return *value=NULL,*vsize = 0,RESULT_KEY_NOT_FOUND;
 		value_src = _get_value(index,found,&vsrc_size);
 		if (!vsrc_size)
 			value_dst = NULL;
@@ -877,7 +895,7 @@ static inline void _change_counter(FSingSet *index,unsigned hash,int diff)
 	index->head->count += diff;
 	}
 
-// Добавляем ключ, если нет цепочки коллизий. Если есть, сохраняет адрес цепочки для префетча
+// Добавляем или заменяем ключ , если нет цепочки коллизий. Если есть, сохраняет адрес цепочки для префетча
 // Возвращает комбинацию флагов KS_ADDED, KS_DELETED, KS_NEED_FREE, KS_MARKED, KS_ERROR
 // Может повесить блокировку памяти и не снять ее. Необходимость снятия определяется по флагам
 int idx_key_try_set(FSingSet *index,FTransformData *tdata)
@@ -1475,11 +1493,11 @@ void idx_del_unmarked(FSingSet *index,unsigned *counters,CSingIterateCallbackRaw
 	
 	for (i = 0; i < COUNTERS_SIZE(index->hashtable_size) - 1; i++)
 		{
-		if (!counters[i]) continue;
+		if (index->counters[i] <= counters[i]) continue;
 		for (j = COUNTER_TO_HASH(i); j < COUNTER_TO_HASH(i+1); j++)
 			del_unmarked_from_hash_chain(index,j,cb,param);
 		}
-	if (counters[i])
+	if (index->counters[i] > counters[i])
 		{
 		for (j = COUNTER_TO_HASH(i) ; j < index->hashtable_size; j++)
 			del_unmarked_from_hash_chain(index,j,cb,param);
@@ -1518,7 +1536,7 @@ static inline void cb_call(FSingSet *index,FKeyHeadGeneral *key_head,void *cb,in
 
 void process_hash_chain(FSingSet *index,unsigned hash,void *cb,int raw,void *param)
 	{
-	FKeyHeadGeneral *prev_head,*key_head = NULL; // Заголовок для удаления (найденный)
+	FKeyHeadGeneral *prev_head,*key_head = NULL;
 	FKeyHeadGeneral *table_block; // Блок в хеш-таблице
 	FKeyHeadGeneral *last_block; // Последний блок в цепочке (не в хеш-таблице)
 	unsigned inum,hnum;

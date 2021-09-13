@@ -111,7 +111,7 @@ _Флаги подключения - cм. sing_link_set:_
 В этом режиме все модифицирующие вызовы захватывают мутекс в начале работы, а в конце синхронизируются с диском (если есть дисковая копия) 
 и освобождают мутекс. Если при захвате мутекса обнаружено аварийное завершение его предыдущего владельца (в дальнейшем называемое сбой), 
 выполняется откат к дисковой копии. Если ее нет, вызовы модификации возвращают ошибку. 
-Если используются [sing_lock_W](#sing_lock_W) и [sing_unlock_commit](#sing_unlock_commit) - мутекс осовобождается и выполняется синхронизация 
+Если используются [sing_lock_W](#sing_lock_W) и [sing_unlock_commit](#sing_unlock_commit), то освобождение мутекса и синхронизация происходят
 при вызове [sing_unlock_commit](#sing_unlock_commit).
 - SING_LM_PROTECTED - для блокировки многопоточной записи используются внутренние спинлоки. Процесс должен явно использовать 
 функции [sing_lock_W](#sing_lock_W) и [sing_unlock_commit](#sing_unlock_commit) в одном из потоков для определения аварийного завершения и синхронизации с диском. 
@@ -434,7 +434,7 @@ int sing_get_values_cb_n(FSingSet *kvset,const char *const *keys,const unsigned 
 **Параметры:**  
 **_kvset_** - подключенный набор данных.  
 **_keys_** - указатель на массив имен ключей  
-**_ksizes_** - указатель на массив с длинами имен ключей  
+**_ksizes_** - указатель на массив с длинами имен ключей для sing_get_values_cb_n. Если NULL, вызов аналогичен sing_get_values_cb  
 **_count_** - число ключей  
 **_vacb_** - указатель на функцию выделения памяти  
 **_values_** - место для сохранения ссылок на значение. Должен указывать на память размером sizeof(void \*) \* count  
@@ -445,9 +445,11 @@ n >= 0 - число найденных ключей. в этом случае:
 &nbsp;&nbsp;\*(results + i) содержит 0 если ключ найден \*(value + i), тогда содержит ссылку на значение, \*(vsize + i) - размер значения (возможно NULL,0)  
 &nbsp;&nbsp;\*(results + i) содержит SING_RESULT_KEY_NOT_FOUND если ключ не найден, *(value + i) = NULL, \*(vsize + i) = 0  
 &nbsp;&nbsp;\*(results + i) содержит SING_RESULT_IMPOSSIBLE_KEY если ключ невозможен для кодека, \*(value + i) = NULL, \*(vsize + i) = 0  
-SING_ERROR_NO_MEMORY - коллбек вернул NULL, содержание \*(value + i) и \*(vsize + i) не определено  
+&nbsp;&nbsp;\*(results + i) содержит SING_ERROR_NO_MEMORY или SING_ERROR_NO_SET_MEMORY если в процессе выполнения запроса произошла одна из этих
+ошибок. \*(value + i) = NULL, \*(vsize + i) = 0  
+SING_ERROR_NO_MEMORY - коллбек вернул NULL, \*(value + i) и \*(vsize + i) содержат данные, которые удалось получить до ошибки, остальные содержат NULL и 0  
 SING_ERROR_NO_SET_MEMORY - не удается выделить страницу для новых данных. Эта ошибка может возникнуть в процессе загрузки недостающих данных из дисковой копии.
-Cодержание \*(value + i) и \*(vsize + i) не определено  
+\*(value + i) и \*(vsize + i) содержат данные, которые удалось получить до ошибки, остальные содержат NULL и 0  
 SING_ERROR_CONNECTION_LOST - набор удален. В этом случае ошибки содержание *value и *vsize не меняется  
 
 ### sing_get_value, sing_get_value_n
@@ -466,6 +468,7 @@ int sing_get_value_n(FSingSet *kvset,const char *key,unsigned ksize,void *value,
 0 если ключ найден, в этом случае *value и *vsize содержат значение (возможно обрезанное) и его размер.  
 SING_RESULT_KEY_NOT_FOUND если ключ не найден, в этом случае *value не меняется, *vsize содержит 0  
 SING_RESULT_IMPOSSIBLE_KEY - невозможный для используемого кодека ключ, *value не меняется, *vsize содержит 0  
+SING_RESULT_SMALL_BUFFER - слишком маленький для значения буфер. *value содержит поместившуюся часть значения, *vsize - размер значения.
 SING_ERROR_NO_SET_MEMORY - не удается выделить страницу для новых данных. Эта ошибка может возникнуть в процессе загрузки недостающих данных из дисковой копии.
 *value и *vsize не меняются  
 SING_ERROR_CONNECTION_LOST - набор удален, *value и *vsize не меняются  
@@ -479,7 +482,7 @@ int sing_get_values_n(FSingSet *kvset,const char *const *keys,const unsigned *ks
 **Параметры:**  
 **_kvset_** - подключенный набор данных.  
 **_keys_** - указатель на массив имен ключей  
-**_ksizes_** - указатель на массив с размерами ключей  
+**_ksizes_** - указатель на массив с размерами ключей для sing_get_values_n. Если NULL, вызов аналогичен sing_get_values  
 **_count_** - число ключей  
 **_values_** - массив ссылок на выделенную память. Должен указывать на память размером sizeof(void \*) \* count, каждый элемент которого \*(values + i) - ссылка на участок 
 памяти размером \*(vsize + i). На выходе в эту память помещаются значения ключей (возможно обрезанные)  
@@ -491,6 +494,9 @@ n >= 0 - число найденных ключей. в этом случае:
 &nbsp;&nbsp;*(results + i) содержит 0 если ключ найден, в \*\*(value + i) скопировано значение, \*(vsize + i) - размер значения, если 0 то \*\*(value + i) не меняется  
 &nbsp;&nbsp;*(results + i) содержит SING_RESULT_KEY_NOT_FOUND если ключ не найден, \*(vsize + i) = 0, \*\*(value + i) не меняется  
 &nbsp;&nbsp;*(results + i) содержит SING_RESULT_IMPOSSIBLE_KEY если ключ невозможен для кодека, \*(vsize + i) = 0, \*\*(value + i) не меняется  
+&nbsp;&nbsp;\*(results + i) содержит SING_ERROR_NO_SET_MEMORY если в процессе выполнения запроса произошла одна из этих ошибок. \*(value + i) не меняется, \*(vsize + i) = 0  
+SING_ERROR_NO_SET_MEMORY - не удается выделить страницу для новых данных. Эта ошибка может возникнуть в процессе загрузки недостающих данных из дисковой копии.
+\*(value + i) и \*(vsize + i) содержат данные, которые удалось получить до ошибки, остальные \*(vsize + i) содержат 0  
 SING_ERROR_CONNECTION_LOST - набор удален. В этом случае \*(vsize + i) и \*\*(value + i) не меняются  
 
 ### sing_get_values_simple, sing_get_values_simple_n
@@ -552,7 +558,7 @@ SING_ERROR_CONNECTION_LOST - набор удален
 
 ### sing_value_equal
 ```c
-int sing_value_equal(FSingSet *kvset,const char *key,const void *value,unsigned vsize)
+int sing_value_equal(FSingSet *kvset,const char *key,void *value,unsigned vsize)
 ```
 Проверяет наличие ключа и совпадение его значений с данными *value.  
 **Параметры:**  
@@ -569,7 +575,7 @@ SING_ERROR_CONNECTION_LOST - набор удален
 
 ### sing_values_equal
 ```c
-int sing_values_equal(FSingSet *kvset,const char *const *keys,unsigned count,const void *const *values,const unsigned *vsizes,int *results)
+int sing_values_equal(FSingSet *kvset,const char *const *keys,unsigned count,const void **values,const unsigned *vsizes,int *results)
 ```
 Проверяет последовательно наличие нескольких ключей и совпадение их значений с переданными. results[i] содержит результат поиска и сравнения. Вызов не атомарен.  
 **Параметры:**  

@@ -99,7 +99,10 @@ lck_processLock_retry:
 				}
 		case 0:
 			if (__atomic_load_n(&kvset->head->bad_states.states.deleted,__ATOMIC_RELAXED))
+				{
+				pthread_mutex_unlock(&kvset->lock_set->process_lock);
 				goto lck_processLock_retry; 
+				}
 			return 0;	
 		}
 	return ERROR_INTERNAL;
