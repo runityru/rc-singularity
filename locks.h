@@ -43,6 +43,9 @@ typedef struct FReaderLockTg
 	unsigned short keeped;
  	unsigned readerSeq;
 	} FReaderLock;
+
+#define NORMAL_LOCK_INIT {0,0,0}
+#define KEEPING_LOCK_INIT {1,0,0}
 	
 typedef struct FLockSetTg
 	{
@@ -108,7 +111,7 @@ static inline void lck_globalUnlock(FLockSet *locks)
 	__atomic_store_n(&locks->global_lock,0,__ATOMIC_RELEASE);
 	}
 
-// Ставит блокировку читателя
+// Ставит блокировку читателя (1 - все норм, 0 - сохраненная блокировка была снята)
 void lck_readerLock(FLockSet *locks,FReaderLock *rlock);
 
 // Проверяет валидность блокировки читателя (1 - все норм, 0 - была снята)

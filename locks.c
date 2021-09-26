@@ -263,12 +263,19 @@ void lck_waitForReaders(FLockSet *locks)
 		}
 	}
 
+static inline int _check_reader_lock(FRWLock lock,FReaderLock *rlock)
+	{
+	if (!(lock.parts.counters.counter[rlock->readerSeq & 1])) return 0;
+	if (rlock->readerSeq != lock.parts.sequence && rlock->readerSeq + 1 != lock.parts.sequence) return 0;
+	return 1;
+	}
+
 void lck_readerLock(FLockSet *locks,FReaderLock *rlock)
 	{
 	FRWLock lock,newstate;
 
 	if (rlock->keeped) return;
-	lock.fullValue = __atomic_load_n(&locks->rw_lock.fullValue,__ATOMIC_RELAXED); // Получим приблизительное состояние блокировок
+	lock.fullValue = __atomic_load_n(&locks->rw_lock.fullValue,__ATOMIC_RELAXED); // We omit one LOCK prefix in exchage for possible exra iteration
 lck_readerLock_retry:
 	newstate = lock;
 	newstate.parts.counters.counter[lock.parts.sequence & 1]++;
@@ -276,41 +283,37 @@ lck_readerLock_retry:
 		goto lck_readerLock_retry;
 	rlock->readerSeq = lock.parts.sequence;
 	}
-	
-static inline int _check_reader_lock(FRWLock *lock,FReaderLock *rlock)
-	{
-	if (!(lock->parts.counters.counter[rlock->readerSeq & 1])) return 0;
-	if (rlock->readerSeq != lock->parts.sequence && rlock->readerSeq + 1 != lock->parts.sequence) return 0;
-	return 1;
-	}
 
 int lck_readerCheck(FLockSet *locks,FReaderLock *rlock)
 	{
 	FRWLock lock;
-	lock.fullValue = __atomic_load_n(&locks->rw_lock.fullValue,__ATOMIC_RELAXED); // Эта функция исп. только для предупреждения зацикливания, т.о. актуальность не очень важна
-	return _check_reader_lock(&lock,rlock);
+	lock.fullValue = __atomic_load_n(&locks->rw_lock.fullValue,__ATOMIC_RELAXED); // This call is for infinite loop breaking, no LOCK is ok
+	return _check_reader_lock(lock,rlock);
 	}
 
 int lck_readerUnlock(FLockSet *locks,FReaderLock *rlock)
 	{
 	FRWLock lock,newstate;
 	
-	rlock->keeped = 0;
 	lock.fullValue = __atomic_load_n(&locks->rw_lock.fullValue,__ATOMIC_SEQ_CST);
-	if (!_check_reader_lock(&lock,rlock))
-		return 0;
-	if (rlock->keep && rlock->readerSeq == lock.parts.sequence)
+	if (!_check_reader_lock(lock,rlock))
+		return rlock->keeped = 0,0;
+	newstate = lock;
+	if (rlock->keep)
 		{
 		rlock->keeped = 1;
-		return 1;
+		if (rlock->readerSeq == lock.parts.sequence)
+			return 1;
+		newstate.parts.counters.counter[lock.parts.sequence & 1]++;
 		}
-	newstate = lock;
 	newstate.parts.counters.counter[rlock->readerSeq & 1]--;
 	while (!__atomic_compare_exchange_n(&locks->rw_lock.fullValue, &lock.fullValue, newstate.fullValue, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
 		{
-		if (!_check_reader_lock(&lock,rlock))
-			return 0;
+		if (!_check_reader_lock(lock,rlock))
+			return rlock->keeped = 0,0;
 		newstate = lock;
+		if (rlock->keep)
+			newstate.parts.counters.counter[lock.parts.sequence & 1]++;
 		newstate.parts.counters.counter[rlock->readerSeq & 1]--;
 		}
 	return 1;

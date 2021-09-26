@@ -238,11 +238,11 @@ static inline void idx_op_finalize(FSingSet *index,FTransformData *tdata,int res
 		}
 	}
 
-typedef void (*CSingIterateCallbackRaw)(const FKeyHead *key_head,const element_type *key_rest,const void *value,unsigned vsize,void *param);
-typedef int (*CSingIterateCallback)(const char *key,const void *value,unsigned vsize,void *new_value,void *param);
+typedef struct FWriteBufferSetTg FWriteBufferSet;
 
-void idx_del_unmarked(FSingSet *index,unsigned *counters,CSingIterateCallbackRaw cb,void *param);
-void idx_process_all(FSingSet *index,void *cb,int raw,void *param);
+void idx_del_unmarked(FSingSet *index,unsigned *counters,FWriteBufferSet *wbs);
+
+void idx_dump_all(FSingSet *index,FWriteBufferSet *wbs);
 
 typedef struct FCheckDataTg
 	{

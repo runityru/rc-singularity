@@ -13,6 +13,13 @@ typedef struct FSingSetTg FSingSet;
 
 int collision_search(unsigned hashtable_size,unsigned needed_hash,unsigned needed_cnt,char **words);
 
+extern const char *multi_keys[7];
+extern const char *multi_keys_long[7];
+extern char *multi_values[5];
+
+element_type one_key_value_prep(FSingSet *index,int *res_mem);
+element_type many_key_value_prep(FSingSet *index,int *res_mem);
+
 typedef element_type (*prepfunc)(FSingSet *index,int *res_mem);
 typedef int (*testfunc)(FSingSet *index,int *res_mem,element_type prep_data);
 
@@ -24,13 +31,8 @@ typedef struct FTestDataTg {
 	unsigned flags;
 	} FTestData;
 
+void test_delete_set(char *index_name);
+
 int run_test(FTestData *test_data);
-
-typedef struct FTransformDataTg FTransformData;
-
-void test_make_tdata(FSingSet *index,char *key_source,int vsize,unsigned char *value,FTransformData *tdata);
-void test_process_res(FSingSet *index,int res,FTransformData *tdata);
-int test_add_key(FSingSet *index,char *key_source,int vsize,unsigned char *value);
-int test_del_key(FSingSet *index,char *key_source);
 
 #endif
