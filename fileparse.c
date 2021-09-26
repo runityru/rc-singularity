@@ -20,7 +20,7 @@
 
 typedef struct 
 	{
-	FBufferSet *rbs;
+	FReadBufferSet *rbs;
 	char *buf;
 	int pos;
 	int size;
@@ -30,7 +30,7 @@ static inline int inc_buf_pos(FReadBufData *bufdata)
 	{
 	if (++bufdata->pos == bufdata->size)
 		{
-		if (!(bufdata->buf = fb_next_block(bufdata->rbs,&bufdata->size)))
+		if (!(bufdata->buf = fbr_next_block(bufdata->rbs,&bufdata->size)))
 			return 0;
 		bufdata->pos = 0;
 		}
@@ -282,8 +282,8 @@ int _process_string(FSingSet *index,const FSingCSVFile *csv_format,FReadBufData 
 				return keyfound;
 			continue;
 			}
-		if (bufdata->size - bufdata->pos < MOVABLE_TAIL 
-					&& !(bufdata->buf = fb_next_block_partial(bufdata->rbs,&bufdata->size,&bufdata->pos)))
+		if (bufdata->size - bufdata->pos < KEY_BUFFER_SIZE 
+					&& !(bufdata->buf = fbr_next_block_partial(bufdata->rbs,&bufdata->size,&bufdata->pos)))
 			{
 			if (ecb) (*ecb)(&bufdata->buf[bufdata->pos]);
 			return scanto_eol(bufdata),0;
@@ -325,7 +325,7 @@ int _process_string(FSingSet *index,const FSingCSVFile *csv_format,FReadBufData 
 	return keyfound;
 	}
 
-int fp_parseFile2(FSingSet *index,const FSingCSVFile *csv_format,FBufferSet *sourceRbs,processParsedItem pcb,parsedError ecb,unsigned invert,void *cb_param)
+int fp_parseFile2(FSingSet *index,const FSingCSVFile *csv_format,FReadBufferSet *sourceRbs,processParsedItem pcb,parsedError ecb,unsigned invert,void *cb_param)
 	{
 	FReadBufData bufdata;
 	int rv;
@@ -334,7 +334,10 @@ int fp_parseFile2(FSingSet *index,const FSingCSVFile *csv_format,FBufferSet *sou
 	bufdata.size = bufdata.pos = 0;
 	unsigned diff_mark = index->head->state_flags & SF_DIFF_MARK;
 	
-	FProcessChain pchains[4] __attribute__ ((aligned (CACHE_LINE_SIZE)));
+	FProcessChain *pchains;
+	if (posix_memalign((void **)&pchains,CACHE_LINE_SIZE,sizeof(FProcessChain) * 4))
+		return 1;
+
 	pchain_init(&pchains[0],diff_mark);
 	pchain_init(&pchains[1],diff_mark);
 	pchain_init(&pchains[2],diff_mark);
@@ -345,8 +348,8 @@ int fp_parseFile2(FSingSet *index,const FSingCSVFile *csv_format,FBufferSet *sou
 
 	FProcessThreadParams ptp = {index,pcb,pchains,cb_param};
 	
-	if (!(bufdata.buf = fb_first_block(sourceRbs,&bufdata.size)))
-		return 0;
+	if (!(bufdata.buf = fbr_first_block(sourceRbs,&bufdata.size)))
+		return free(pchains),0;
 
 	wchain = &pchains[0];
 	tdata = &wchain->tdata[0];
@@ -365,7 +368,7 @@ int fp_parseFile2(FSingSet *index,const FSingCSVFile *csv_format,FBufferSet *sou
 		tdata++;
 		}
 	if (!wchain->ctdata)
-		return 0;
+		return free(pchains),0;
 	__atomic_store_n(&wchain->state,1,__ATOMIC_RELEASE);
 	wchain = &pchains[1];
 	tdata = &wchain->tdata[0];
@@ -406,12 +409,12 @@ int fp_parseFile2(FSingSet *index,const FSingCSVFile *csv_format,FBufferSet *sou
 		}
 fp_parseFile2_exit:
 	pthread_join(proc_thread,(void**)&rv);
-	return rv;
+	return free(pchains),rv;
 	}
 
 #define SINGLE_CHAIN_SIZE 4
 
-int fp_parseFile(FSingSet *index,const FSingCSVFile *csv_format,FBufferSet *sourceRbs,processParsedItem pcb,parsedError ecb,unsigned invert,void *cb_param)
+int fp_parseFile(FSingSet *index,const FSingCSVFile *csv_format,FReadBufferSet *sourceRbs,processParsedItem pcb,parsedError ecb,unsigned invert,void *cb_param)
 	{
 	FReadBufData bufdata;
 	bufdata.rbs = sourceRbs;
@@ -419,20 +422,22 @@ int fp_parseFile(FSingSet *index,const FSingCSVFile *csv_format,FBufferSet *sour
 	
 	unsigned i,ctdata = 0 ;
 	FTransformData tdata[SINGLE_CHAIN_SIZE];
-	unsigned char values[SINGLE_CHAIN_SIZE][CACHE_ALIGNED_CHAR(MAX_VALUE_SOURCE)] __attribute__ ((aligned (CACHE_LINE_SIZE)));
+	unsigned char *values;
+	if (posix_memalign((void **)&values,CACHE_LINE_SIZE,SINGLE_CHAIN_SIZE * CACHE_ALIGNED_CHAR(MAX_VALUE_SOURCE)))
+		return 1;	
 
 	FTransformData *tdatas[3] = {&tdata[0],NULL,NULL};
 	unsigned diff_mark = index->head->state_flags & SF_DIFF_MARK;
 
 	for (i = 0; i < SINGLE_CHAIN_SIZE; i++)
 		{
-		tdata[i].value_source = values[i];
+		tdata[i].value_source = &values[i * CACHE_ALIGNED_CHAR(MAX_VALUE_SOURCE)];
 		tdata[i].head.fields.chain_stop = 1;
 		tdata[i].head.fields.diff_mark = diff_mark;
 		}
 	
-	if (!(bufdata.buf = fb_first_block(sourceRbs,&bufdata.size)))
-		return 0;
+	if (!(bufdata.buf = fbr_first_block(sourceRbs,&bufdata.size)))
+		return free(values),0;
 	
 	while (bufdata.buf)
 		{
@@ -442,14 +447,16 @@ int fp_parseFile(FSingSet *index,const FSingCSVFile *csv_format,FBufferSet *sour
 		cd_encode(tdatas[0]);
 
 		if (pchain_step(index,tdatas,pcb,cb_param))
-			return 1;
+			return free(values),1;
 	
 		ctdata = (ctdata + 1) % SINGLE_CHAIN_SIZE;
 		tdatas[2] = tdatas[1];
 		tdatas[1] = tdatas[0];
 		tdatas[0] = &tdata[ctdata];
 		}
-	return pchain_tail(index,tdatas,pcb,cb_param);
+	int rv = pchain_tail(index,tdatas,pcb,cb_param);
+	free(values);
+	return rv;
 	}
 	
 void std_parse_error(char *buf)
@@ -469,12 +476,12 @@ parse_error_fnd:
 	fprintf(stderr,"Bad character found in domain name %s\n",errline);
 	}
 	
-int fp_countKeys(FBufferSet *sourceRbs,off_t file_size)
+int fp_countKeys(FReadBufferSet *sourceRbs,off_t file_size)
 	{
 	int cnt = 0;
 	char *block;
 	int size = 0,pos = 0,lastpos = 0;
-	block = fb_first_block(sourceRbs,&size);
+	block = fbr_first_block(sourceRbs,&size);
 	if (!block) return 0;
 	
 	while (1)

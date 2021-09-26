@@ -31,12 +31,16 @@ codec_ops_tests:
 	gcc $(DEBUG) $(COMMON_OPTIONS) tests/codec_ops.c $(BASE_SET) -o tests/codec_ops $(LIBS)
 locks_tests:
 	gcc $(DEBUG) $(COMMON_OPTIONS) tests/locks.c $(BASE_SET) -o tests/locks $(LIBS)
-api_tests:
-	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/api_ops.c $(BASE_SET) -o tests/api_ops $(LIBS)
-file_tests:
-	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/file_ops.c $(BASE_SET) -o tests/file_ops $(LIBS)
+fiilebuf_tests:
+	gcc $(DEBUG) $(COMMON_OPTIONS) tests/filebuffers.c $(BASE_SET) -o tests/filebuffers $(LIBS)
+api_read_tests:
+	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/api_read_calls.c $(BASE_SET) -o tests/api_read_calls $(LIBS)
+api_file_tests:
+	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/api_file_calls.c $(BASE_SET) -o tests/api_file_calls $(LIBS)
+api_other_tests:
+	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/api_other_calls.c $(BASE_SET) -o tests/api_other_calls $(LIBS)
 
-autotests: memory_tests keyheads_tests index_ops_tests codec_ops_tests locks_tests api_tests file_tests
+autotests: memory_tests keyheads_tests index_ops_tests codec_ops_tests locks_tests fiilebuf_tests api_read_tests api_file_tests api_other_tests
 	
 test:
 	./tests/memory
@@ -44,8 +48,10 @@ test:
 	./tests/index_ops
 	./tests/codec_ops
 	./tests/locks
-	./tests/api_ops
-	./tests/file_ops
+	./tests/filebuffers
+	./tests/api_read_calls
+	./tests/api_file_calls
+	./tests/api_other_calls
 
 install:
 	mkdir -p /var/lib/rc-singularity
@@ -66,4 +72,4 @@ clean:
 	rm -f bin/*
 	rm -f debug/*
 	rm -f lib/*
-	rm -f tests/memory tests/keyheads tests/index_ops tests/codec_ops tests/locks tests/api_ops
+	rm -f tests/memory tests/keyheads tests/index_ops tests/codec_ops tests/locks tests/api_read_calls tests/api_file_calls tests/api_other_calls

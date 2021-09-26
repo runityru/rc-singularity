@@ -3,7 +3,9 @@ tests/keyheads
 tests/codec_ops
 tests/index_ops
 tests/locks
-tests/api_ops
-tests/file_ops
+tests/api_read_calls
+tests/api_file_calls
+tests/api_other_calls
+tests/filebuffers
 *.csv
 .vs

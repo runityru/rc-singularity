@@ -3,7 +3,10 @@ Major - data store format
 Minor - incompatible API changes
 Release - fixes, performance improvement, API additions
 
-0.9.4 - fixed bug of improper use of second thread for file parsing in diff
+0.9.5 - sing_dump is safe reader call now. Reworked filebuffer.c. API tests splitted to different files. Added tests for read and write file buffers. 
+        Big structures moved from stack to heap allocation. Keeped reader locks now is keeped even in case of pending write (with switched mask).
+
+0.9.4 - fixed improper use of second thread for file parsing in diff in sing_handler
 
 0.9.3 - fixed bug in counters based diff. Fixed bug in lck_processUnlock. Api and documentation fixes 
 

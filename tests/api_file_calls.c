@@ -65,7 +65,7 @@ diff_test_exit:
 	return rv;
 	}
 
-int diff_replace_test_1_3(FSingSet *index,int *res_mem,element_type prep_data)
+int diff_replace_test_3(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	char key[20],value[20];
 	unsigned vsize;
@@ -99,17 +99,15 @@ diff_test_exit:
 	return rv;
 	}
 
-
-
 int main(void)
 	{
 	int rv = 0;
 	unsigned i;
 
 	FTestData tests[] = {
-		{"diff_1_1",diff_prep,diff_replace_test,SING_LM_NONE,0},
-		{"diff_1_2",diff_prep,diff_replace_test,SING_LM_NONE,SING_UF_COUNTERS},
-		{"diff_1_3",diff_prep,diff_replace_test_1_3,SING_LM_NONE,SING_UF_COUNTERS},
+		{"diff_replace_1",diff_prep,diff_replace_test,SING_LM_NONE,0},
+		{"diff_replace_2",diff_prep,diff_replace_test,SING_LM_NONE,SING_UF_COUNTERS},
+		{"diff_replace_3",diff_prep,diff_replace_test_3,SING_LM_NONE,SING_UF_COUNTERS},
 		};
 	unsigned tcnt = sizeof(tests) / sizeof(FTestData);
 	for (i = 0; i < tcnt; i++)

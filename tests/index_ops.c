@@ -16,47 +16,52 @@
 char *collisions[20];
 char *collisions2[20];
 
-int collision_search(unsigned hashtable_size,unsigned needed_hash,unsigned needed_cnt,char **words)
+void test_make_tdata(FSingSet *index,char *key_source,int vsize,unsigned char *value,FTransformData *tdata)
 	{
-	unsigned i;
-	char letters[36];
-	char word[10];
-	int cnt = 0,num = 0;
+	tdata->value_source = value;
+	tdata->value_size = vsize;
+	tdata->head.fields.chain_stop = 1;
+	tdata->head.fields.diff_mark = 0;
+	cd_transform(key_source,MAX_KEY_SOURCE,tdata);
+	tdata->hash = index->hashtable_size;
+	cd_encode(tdata);
+	}
+
+void test_process_res(FSingSet *index,int res,FTransformData *tdata)
+	{
+	if (res & KS_CHANGED)
+		{
+		if (tdata->old_key_rest_size)
+			{
+			lck_waitForReaders(index->lock_set);
+			idx_general_free(index,tdata->old_key_rest,tdata->old_key_rest_size);
+			}
+		lck_memoryUnlock(index);
+		}
+	}
+
+int test_add_key(FSingSet *index,char *key_source,int vsize,unsigned char *value)
+	{
 	FTransformData tdata;
 
-	tdata.value_source = NULL;
-	tdata.head.fields.chain_stop = 1;
-	tdata.head.fields.diff_mark = 0;
+	test_make_tdata(index,key_source,vsize,value,&tdata);
+	int rv = idx_key_try_set(index,&tdata);
+	if (!rv)
+		rv = idx_key_set(index,&tdata);
+	test_process_res(index,rv,&tdata);
+	return rv;
+	}
 
-	for (i = 0; i < 26; i++)
-		letters[i] = 'a' + i;
-	for (i = 0; i < 10; i++)
-		letters[i + 26] = '0' + i;
+int test_del_key(FSingSet *index,char *key_source)
+	{
+	FTransformData tdata;
 
-	while (cnt < 20)
-		{
-		int pos = 0;
-		int cnum = num++;
-		do 
-			{
-			word[pos++] = letters[cnum % 36];
-			cnum /= 36;
-			if (pos >= 9)
-				return cnt;
-			}
-		while (cnum);
-		word[pos] = 0;
+	test_make_tdata(index,key_source,0,NULL,&tdata);
 
-		cd_transform(word,MAX_KEY_SOURCE,&tdata);
-		tdata.hash = hashtable_size;
-		cd_encode(&tdata);
-		if (tdata.hash == needed_hash)
-			{
-			strcpy(words[cnt],word);
-			cnt++;
-			}
-		}
-	return cnt;
+	int rv = idx_key_del(index,&tdata);
+	if (rv & KS_CHANGED)
+		lck_memoryUnlock(index);
+	return rv;
 	}
 
 //(1) Размещение тела ключа

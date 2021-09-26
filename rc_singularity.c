@@ -19,16 +19,12 @@
 
 // Коллбеки построчной обработки файлов
 
-int std_process(FSingSet *index,FTransformData *tdata, void *cb_param) __attribute__((regparm(3)));
-
 int std_process(FSingSet *index,FTransformData *tdata, void *cb_param)
 	{
 	if (tdata->operation & OP_DEL_MASK)
 		return idx_key_del(index,tdata);
 	return idx_key_set_switch(index,tdata);
 	}
-
-int phantom_process(FSingSet *index,FTransformData *tdata, void *cb_param) __attribute__((regparm(3)));
 
 int phantom_process(FSingSet *index,FTransformData *tdata, void *cb_param)
 	{
@@ -50,56 +46,42 @@ int phantom_process(FSingSet *index,FTransformData *tdata, void *cb_param)
 
 // Коллбеки вывода результатов
 
-static inline void resultOutput(char sym,const FKeyHead *head,const element_type *key_rest,const void *value, unsigned vsize,FBufferSet *resultWbs)
+static inline void resultOutput(const FKeyHead *head,const element_type *key_rest,const void *value, unsigned vsize,FWriteBufferSet *resultWbs)
 	{
-	char *name = fb_get_pos(resultWbs);
-	name[0] = sym;
-	unsigned size = cd_decode(&name[1],head,key_rest);
-	if (!vsize)
+	char *name = fbw_get_ref(resultWbs);
+	unsigned size = cd_decode(&name[0],head,key_rest);
+	if (vsize)
 		{
-		name[++size] = '\n';
-		fb_added(resultWbs,++size);
-		return;
+		name[size++] = '\t';
+		memcpy(&name[size],(const char *)value,vsize);
+		size += vsize;
 		}
-	name[++size] = '\t';
-	fb_added(resultWbs,++size);
-	fb_add(resultWbs,(const char *)value,vsize);
-	fb_add(resultWbs,"\n",1);
+	name[size++] = '\n';
+	fbw_shift_pos(resultWbs,size);
 	}
 
-void resultDeletedToFile(const FKeyHead *head,const element_type *key_rest,const  void *value, unsigned vsize,void *param)
+typedef struct FIterateCbParamsTg
 	{
-	resultOutput('-',head,key_rest,value,vsize,(FBufferSet *)param);
-	}
+	CSingIterateCallback user_cb;
+	void *param;
+	} FIterateCbParams;
 
-void phantomResultOutputToFile(const FKeyHead *head,const element_type *key_rest,const void *value, unsigned vsize,void *param)
+int user_callback(const FKeyHead *head,const element_type *key_rest,const void *value, unsigned vsize,void *param)
 	{
-	resultOutput(head->diff_mark?'-':'+',head,key_rest,value,vsize,(FBufferSet *)param);
+	FIterateCbParams *params = (FIterateCbParams *)param;
+	char keybuf[MAX_KEY_SOURCE + 1];
+	unsigned size = cd_decode(keybuf,head,key_rest);
+	keybuf[size] = 0;
+	(*(params->user_cb))(keybuf,value,vsize,NULL,param);
+	return 0;
 	}
 	
-void plainResultOutputToFile(const FKeyHead *head,const element_type *key_rest,const void *value, unsigned vsize,void *param)
-	{
-	FBufferSet *resultWbs = (FBufferSet *)param;
-	char *name = fb_get_pos(resultWbs);
-	unsigned size = cd_decode(&name[0],head,key_rest);
-	if (!vsize)
-		{
-		name[size] = '\n';
-		fb_added(resultWbs,++size);
-		return;
-		}
-	name[size] = '\t';
-	fb_added(resultWbs,++size);
-	fb_add(resultWbs,(const char *)value,vsize);
-	fb_add(resultWbs,"\n",1);
-	}
-
 // Коллбеки дифа
 
 typedef struct FDiffCBParamTg
 	{
 	unsigned *new_counters;
-	FBufferSet *resultWbs;
+	FWriteBufferSet *resultWbs;
 	} FDiffCBParam;
 
 int parse_process_diff_replace(FSingSet *index,FTransformData *tdata, void *cb_param) __attribute__((regparm(3)));
@@ -112,9 +94,15 @@ int parse_process_diff_replace(FSingSet *index,FTransformData *tdata, void *cb_p
 
 	FDiffCBParam *diff_param = (FDiffCBParam *)cb_param;
 	if (res & KS_DELETED)
-		resultOutput((res & KS_ADDED) ? '!':'-',&(tdata->head.fields),tdata->key_rest,tdata->old_value,tdata->old_value_size,diff_param->resultWbs);
+		{
+		fbw_add_sym(diff_param->resultWbs,(res & KS_ADDED) ? '!':'-');
+		resultOutput(&(tdata->head.fields),tdata->key_rest,tdata->old_value,tdata->old_value_size,diff_param->resultWbs);
+		}
 	if (res & KS_ADDED)
-		resultOutput((res & KS_DELETED) ? '=':'+',&(tdata->head.fields),tdata->key_rest,tdata->value_source,tdata->value_size,diff_param->resultWbs);
+		{
+		fbw_add_sym(diff_param->resultWbs,(res & KS_DELETED) ? '=':'+');
+		resultOutput(&(tdata->head.fields),tdata->key_rest,tdata->value_source,tdata->value_size,diff_param->resultWbs);
+		}
 
 	if (diff_param->new_counters && (res & KS_MARKED))
 		diff_param->new_counters[HASH_TO_COUNTER(tdata->hash)] ++;
@@ -123,7 +111,7 @@ int parse_process_diff_replace(FSingSet *index,FTransformData *tdata, void *cb_p
 
 // Функции работы с файлами
 
-static inline int plain_process_file(FSingSet *index,const FSingCSVFile *csv_file,FBufferSet *sourceRbs,unsigned invert,void *cb_param)
+static inline int plain_process_file(FSingSet *index,const FSingCSVFile *csv_file,FReadBufferSet *sourceRbs,unsigned invert,void *cb_param)
 	{
 	fileParseFunc fpc = (index->conn_flags & CF_MULTICORE_PARSE) ? fp_parseFile2 : fp_parseFile;
 	parsedError ecb = (index->conn_flags & CF_PARSE_ERRORS) ? std_parse_error : NULL;
@@ -133,43 +121,31 @@ static inline int plain_process_file(FSingSet *index,const FSingCSVFile *csv_fil
 
 FSingSet *sing_create_set(const char *setname,const FSingCSVFile *csv_file,unsigned keys_count,unsigned flags,unsigned lock_mode,FSingConfig *config)
 	{
-	FBufferSet sourceRbs;
+	FReadBufferSet *sourceRbs = NULL;
 	FSingSet *index;
-	sourceRbs.fd = -1;
 	off_t filesize = 0;
 	FSingConfig *used_config = config;
 	if (!used_config && !(used_config = sing_config_get_default()))
 		return NULL;
-	if (csv_file)
+	if (csv_file && csv_file->filename)
 		{
-		if (csv_file->filename)
-			{
-			filesize = file_size(csv_file->filename);
-			if (filesize == -1 || !fb_init_r(&sourceRbs,csv_file->filename))
-				return cnf_set_formatted_error(config,"Source file %s not found",csv_file->filename),NULL;
-			if (!keys_count)
-				keys_count = fp_countKeys(&sourceRbs,filesize) / 4;
-			}
-		else 
-			csv_file = NULL;
+		filesize = file_size(csv_file->filename);
+		if (filesize == -1 || !(sourceRbs = fbr_create(csv_file->filename)))
+			return cnf_set_formatted_error(config,"Source file %s not found",csv_file->filename),NULL;
+		if (!keys_count)
+			keys_count = fp_countKeys(sourceRbs,filesize) / 4;
 		}
-
 	if (!lock_mode)
 		lock_mode = setname ? LM_SIMPLE : LM_NONE;
 
-	if (!(index = idx_create_set(setname,keys_count,flags,used_config)))
+	if ((index = idx_create_set(setname,keys_count,flags,used_config)))
 		{
-		fb_finish(&sourceRbs);
-		if (!config)
-			sing_delete_config(used_config);
-		return NULL;
+		if (sourceRbs && plain_process_file(index,csv_file,sourceRbs,0,NULL))
+			sing_delete_set(index);
+		else
+			idx_creation_done(index,lock_mode);
 		}
-	
-	if (csv_file && plain_process_file(index,csv_file,&sourceRbs,0,NULL))
-		sing_delete_set(index);
-	else
-		idx_creation_done(index,lock_mode);
-	fb_finish(&sourceRbs);
+	fbr_finish(sourceRbs);
 	if (!config)
 		sing_delete_config(used_config);
 	return index;
@@ -247,33 +223,33 @@ int sing_revert(FSingSet *kvset)
 
 int sing_add_file(FSingSet *kvset,const FSingCSVFile *csv_file)
 	{
-	FBufferSet sourceRbs;
+	FReadBufferSet *sourceRbs;
 
-	if (file_size(csv_file->filename) == -1 || !fb_init_r(&sourceRbs,csv_file->filename))
+	if (file_size(csv_file->filename) == -1 || !(sourceRbs = fbr_create(csv_file->filename)))
 		return idx_set_formatted_error(kvset,"Source file %s not found",csv_file->filename),ERROR_FILE_NOT_FOUND; 
 	int rv = lck_processLock(kvset);
 	if (!rv)
 		{
-		rv = plain_process_file(kvset,csv_file,&sourceRbs,0,NULL);
+		rv = plain_process_file(kvset,csv_file,sourceRbs,0,NULL);
 		rv = lck_processUnlock(kvset,rv,1);
 		}
-	fb_finish(&sourceRbs);
+	fbr_finish(sourceRbs);
 	return rv;
 	}
 
 int sing_sub_file(FSingSet *kvset,const FSingCSVFile *csv_file)
 	{
-	FBufferSet sourceRbs;
+	FReadBufferSet *sourceRbs;
 
-	if (file_size(csv_file->filename) == -1 || !fb_init_r(&sourceRbs,csv_file->filename))
+	if (file_size(csv_file->filename) == -1 || !(sourceRbs = fbr_create(csv_file->filename)))
 		return idx_set_formatted_error(kvset,"Source file %s not found",csv_file->filename),ERROR_FILE_NOT_FOUND; 
 	int rv = lck_processLock(kvset);
 	if (!rv)
 		{
-		rv = plain_process_file(kvset,csv_file,&sourceRbs,1,NULL);
+		rv = plain_process_file(kvset,csv_file,sourceRbs,1,NULL);
 		rv = lck_processUnlock(kvset,rv,1);
 		}
-	fb_finish(&sourceRbs);
+	fbr_finish(sourceRbs);
 	return rv;
 	}
 
@@ -284,26 +260,24 @@ int sing_diff_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outf
 
 int sing_diff_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile)
 	{
-	FBufferSet sourceRbs;
-	FBufferSet resultWbs;
+	FReadBufferSet *rbs = NULL;
+	FWriteBufferSet *wbs = NULL;
 	FDiffCBParam diff_param = {NULL,NULL};
 	int rv = 0;
 
-	sourceRbs.fd = -1;
-	resultWbs.fd = -1;
 	if (kvset->head->use_flags & UF_PHANTOM_KEYS)
 		return idx_set_error(kvset,"Share with phantom keys can not be diffed"), ERROR_IMPOSSIBLE_OPERATION;
-	if (file_size(csv_file->filename) == -1 || !fb_init_r(&sourceRbs,csv_file->filename))
+	if (file_size(csv_file->filename) == -1 || !(rbs = fbr_create(csv_file->filename)))
 		return idx_set_formatted_error(kvset,"Source file %s not found",csv_file->filename), ERROR_FILE_NOT_FOUND; 
 
-	if (!fb_init_w(&resultWbs,outfile))
+	if (!(wbs = fbw_create(outfile)))
 		{ 
 		idx_set_formatted_error(kvset,"Failed to open %s for writing",outfile); 
 		rv = ERROR_OUTPUT_NOT_FOUND;
 		goto diff_exit; 
 		}
 
-	diff_param.resultWbs = &resultWbs;
+	diff_param.resultWbs = wbs;
 	if (kvset->counters && !(diff_param.new_counters = (unsigned *)calloc(COUNTERS_SIZE(kvset->hashtable_size),sizeof(unsigned))))
 		{ 
 		idx_set_error(kvset,"Failed to allocate memory for counters");
@@ -318,29 +292,28 @@ int sing_diff_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file,const ch
 	if (!rv)
 		{
 		kvset->head->state_flags ^= SF_DIFF_MARK;
-		rv = (*fpc)(kvset,csv_file,&sourceRbs,parse_process_diff_replace,ecb,0,&diff_param);
+		rv = (*fpc)(kvset,csv_file,rbs,parse_process_diff_replace,ecb,0,&diff_param);
 		if (!rv)
-			idx_del_unmarked(kvset,diff_param.new_counters,resultDeletedToFile,&resultWbs);
+			idx_del_unmarked(kvset,diff_param.new_counters,wbs);
 		rv = lck_processUnlock(kvset,rv,1);
 		}
 diff_exit:
 	if (diff_param.new_counters)
 		free(diff_param.new_counters);
-	fb_finish(&sourceRbs);
-	fb_finish(&resultWbs);
+	if (wbs)
+		fbw_finish(wbs);
+	if (rbs)
+		fbr_finish(rbs);
 	return rv;
 	}
 
 int sing_dump(FSingSet *index,char *outfile,unsigned flags)
 	{
-	CSingIterateCallbackRaw cb;
-
-	FBufferSet resultWbs;
-	if (!fb_init_w(&resultWbs,outfile)) 
+	FWriteBufferSet *wbs = fbw_create(outfile);
+	if (!wbs) 
 		return idx_set_formatted_error(index,"Failed to open %s for writing",outfile),ERROR_OUTPUT_NOT_FOUND;
-	cb = ((index->head->use_flags & UF_PHANTOM_KEYS) ? phantomResultOutputToFile : plainResultOutputToFile);
-	idx_process_all(index,cb,1,&resultWbs);
-	fb_finish(&resultWbs);
+	idx_dump_all(index,wbs);
+	fbw_finish(wbs);
 	return 0;
 	}
 
@@ -375,7 +348,7 @@ int sing_get_values_cb_n(FSingSet *kvset,const char *const *keys,const unsigned 
 	SIMPLE_CALL_CHECKUP(kvset);
 	FTransformData tdata[2];
 	FTransformData *tdatas[2] = {&tdata[0],&tdata[1]};
-	FReaderLock rlock = {0,0,0};
+	FReaderLock rlock = NORMAL_LOCK_INIT;
 	unsigned i = 1,rv = 0;
 	if (!count)
 		return 0;
@@ -608,7 +581,6 @@ int sing_del_key(FSingSet *kvset,const char *key)
 
 int sing_iterate(FSingSet *kvset,CSingIterateCallback cb,void *param)
 	{
-	idx_process_all(kvset,cb,0,param);
-	return 0;
+	return ERROR_IMPOSSIBLE_OPERATION;
 	}
 

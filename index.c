@@ -21,9 +21,11 @@
 #include "index.h"
 #include "cpages.h"
 #include "locks.h"
+#include "codec.h"
 #include "utils.h"
 #include "keyhead.h"
 #include "allocator.h"
+#include "filebuf.h"
 
 #define O_NEWFILE (O_RDWR | O_TRUNC | O_CREAT)
 
@@ -529,34 +531,34 @@ void sing_delete_set(FSingSet *index)
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Возвращает 1 если ключи одинаковы, 0 если различны или вышли за пределы выделенной области. 
-static inline int compareKeys(FSingSet *index,FKeyHead *old_key,FTransformData *tdata)
+static inline int compareKeys(FSingSet *index,FKeyHeadGeneral old_key,FTransformData *tdata)
 	{
-	FKeyHead *new_key = &tdata->head.fields;
+	FKeyHeadGeneral new_key = tdata->head;
 //	if (key1->size != key2->size || key1->data0 != key2->data0) return 0;
 	// Есть различающиеся биты в данных или размере, максимум несовпадений должны фильтроваться здесь
-	if ((*(element_type *)old_key ^ *(element_type *)new_key) & 0xFFFFFC7E) 
+	if ((old_key.links.next ^ new_key.links.next) & 0xFFFFFC7E) 
 		return 0; 
 
 	element_type *old_data;
-	unsigned size = old_key->size;
+	unsigned size = old_key.fields.size;
 	if (!size) return 1;
 	if (size == 1)
 		{
-		element_type cmp = new_key->has_value ? tdata->key_rest[0] : new_key->extra;
-		if (!old_key->has_value)
+		element_type cmp = new_key.fields.has_value ? tdata->key_rest[0] : new_key.fields.extra;
+		if (!old_key.fields.has_value)
 			{
-			if (old_key->extra == cmp) 
+			if (old_key.fields.extra == cmp) 
 				return 1;
 			return 0;
 			}
-		if (!(old_data = pagesPointerNoError(index,old_key->extra))) 
+		if (!(old_data = pagesPointerNoError(index,old_key.fields.extra))) 
 			return 0;
 		if (*old_data == cmp) 
 			return 1;
 		return 0;
 		}
 	unsigned pos = 0;
-	if (!(old_data = regionPointerNoError(index,old_key->extra,size))) 
+	if (!(old_data = regionPointerNoError(index,old_key.fields.extra,size))) 
 		return 0;
 	while (pos < size && old_data[pos] == tdata->key_rest[pos]) pos++;
 	if (pos >= size)
@@ -592,9 +594,10 @@ static inline FKeyHeadGeneral *get_hashtable_entry(FSingSet *index,unsigned hash
 	return (rv->whole || cp_is_hash_entry_loaded(index->real_cpages,hash)) ? rv : _load_hashtable_entry(index,rv,hash);
 	}
 
-static FKeyHead *_key_search(FSingSet *index,FTransformData *tdata,FReaderLock *rlock)
+static uint64_t _key_search(FSingSet *index,FTransformData *tdata,FReaderLock *rlock)
 	{
 	FKeyHeadGeneral *hblock;
+	FKeyHeadGeneral rv;
 	FHashTableChain const *ht_chain;
 	unsigned inum,hnum;
 	
@@ -604,12 +607,12 @@ _key_search_begin:
 	hblock = get_hashtable_entry(index,tdata->hash);
 	ht_chain = &HT_CHAINS[tdata->hash & 1];
 
-	for (hnum = ht_chain->start;hblock[hnum].fields.space_used;hnum += ht_chain->dir)
-		if (compareKeys(index,&hblock[hnum].fields,tdata)) 
-			return &hblock[hnum].fields;
+	for (hnum = ht_chain->start;rv.whole = __atomic_load_n(&hblock[hnum].whole,__ATOMIC_RELAXED),rv.fields.space_used;hnum += ht_chain->dir)
+		if (compareKeys(index,rv,tdata)) 
+			return rv.whole;
 
-	if ((inum = hblock[hnum].links_array.links[ht_chain->link_num]) == KH_ZERO_REF)
-		return lck_readerUnlock(index->lock_set,rlock),NULL; 
+	if ((inum = rv.links_array.links[ht_chain->link_num]) == KH_ZERO_REF)
+		return lck_readerUnlock(index->lock_set,rlock),0LL; 
 
 _key_search_next_block:
 	if (!lck_readerCheck(index->lock_set,rlock)) 
@@ -622,20 +625,22 @@ _key_search_next_block:
 		}
 	for(hnum = KH_BLOCK_NUM(inum);hnum < KH_BLOCK_LAST;hnum++)
 		{
-		if (compareKeys(index,&hblock[hnum].fields,tdata)) 
-			return &hblock[hnum].fields;
-		if (hblock[hnum].fields.chain_stop) // Дошли до конца цепочки, ничего не найдено
-			return lck_readerUnlock(index->lock_set,rlock), NULL; 
+		rv.whole = __atomic_load_n(&hblock[hnum].whole,__ATOMIC_RELAXED);
+		if (compareKeys(index,rv,tdata)) 
+			return rv.whole;
+		if (rv.fields.chain_stop) // Дошли до конца цепочки, ничего не найдено
+			return lck_readerUnlock(index->lock_set,rlock),0LL; 
 		}
-	if (!hblock[KH_BLOCK_LAST].space.space_used)
+	rv.whole = __atomic_load_n(&hblock[KH_BLOCK_LAST].whole,__ATOMIC_RELAXED);
+	if (!rv.space.space_used)
 		{ 
-		inum = hblock[KH_BLOCK_LAST].links.next; 
+		inum = rv.links.next; 
 		goto _key_search_next_block;
 		}
-	FAILURE_CHECK(!hblock[KH_BLOCK_LAST].fields.chain_stop,"open chain"); // Для валидного состояния данные в последнем блоке должны завершать цепочку
-	if (compareKeys(index,&hblock[KH_BLOCK_LAST].fields,tdata)) 
-		return &hblock[KH_BLOCK_LAST].fields;
-	return lck_readerUnlock(index->lock_set,rlock),NULL; 
+	FAILURE_CHECK(!rv.fields.chain_stop,"open chain"); // Для валидного состояния данные в последнем блоке должны завершать цепочку
+	if (compareKeys(index,rv,tdata)) 
+		return rv.whole;
+	return lck_readerUnlock(index->lock_set,rlock),0LL; 
 	}
 
 // Ищем наличие одиночного ключа в таблице
@@ -650,14 +655,14 @@ int idx_key_search(FSingSet *index,FTransformData *tdata,FReaderLock *rlock)
 	return 0;
 	}
 
-void *_get_value(FSingSet *index,FKeyHead *key_head, unsigned *vsize)
+void *_get_value(FSingSet *index,FKeyHead key_head, unsigned *vsize)
 	{
 	element_type *key_rest,*value;
 	
-	if (key_head->has_value)
+	if (key_head.has_value)
 		{
-		key_rest = pagesPointer(index,key_head->extra);
-		value = &key_rest[key_head->size];
+		key_rest = pagesPointer(index,key_head.extra);
+		value = &key_rest[key_head.size];
 		*vsize = VALUE_SIZE_BYTES((FValueHead *)value);
 		return (void *)&value[1];
 		}
@@ -667,16 +672,16 @@ void *_get_value(FSingSet *index,FKeyHead *key_head, unsigned *vsize)
 
 int idx_key_get(FSingSet *index,FTransformData *tdata,FReaderLock *rlock,void *value_dst,unsigned *value_dst_size)
 	{
-	FKeyHead *found;
+	FKeyHeadGeneral found;
 	unsigned vsrc_size,tocpy;
 	int rv;
 	void *value;
 	
 	do
 		{
-		if (!(found = _key_search(index,tdata,rlock)))
+		if (!(found.whole = _key_search(index,tdata,rlock)))
 			return *value_dst_size = 0,RESULT_KEY_NOT_FOUND;
-		value = _get_value(index,found,&vsrc_size);
+		value = _get_value(index,found.fields,&vsrc_size);
 		if (vsrc_size > *value_dst_size)
 			tocpy = *value_dst_size, rv = RESULT_SMALL_BUFFER;
 		else
@@ -691,15 +696,15 @@ int idx_key_get(FSingSet *index,FTransformData *tdata,FReaderLock *rlock,void *v
 
 int idx_key_compare(FSingSet *index, FTransformData *tdata, FReaderLock *rlock, void *value_cmp, unsigned value_cmp_size)
 	{
-	FKeyHead *found;
+	FKeyHeadGeneral found;
 	unsigned vsrc_size;
 	void *value;
 	
 	do
 		{
-		if (!(found = _key_search(index,tdata,rlock)))
+		if (!(found.whole = _key_search(index,tdata,rlock)))
 			return RESULT_KEY_NOT_FOUND;
-		value = _get_value(index,found,&vsrc_size);
+		value = _get_value(index,found.fields,&vsrc_size);
 		if (vsrc_size != value_cmp_size || memcmp(value_cmp,value,value_cmp_size))
 			return RESULT_VALUE_DIFFER;
 		} 
@@ -709,15 +714,15 @@ int idx_key_compare(FSingSet *index, FTransformData *tdata, FReaderLock *rlock, 
 
 int idx_key_get_cb(FSingSet *index,FTransformData *tdata,FReaderLock *rlock,CSingValueAllocator vacb,void **value,unsigned *vsize)
 	{
-	FKeyHead *found;
+	FKeyHeadGeneral found;
 	unsigned vsrc_size;
 	void *value_src,*value_dst;
 	
 	do
 		{
-		if (!(found = _key_search(index,tdata,rlock)))
+		if (!(found.whole = _key_search(index,tdata,rlock)))
 			return *value=NULL,*vsize = 0,RESULT_KEY_NOT_FOUND;
-		value_src = _get_value(index,found,&vsrc_size);
+		value_src = _get_value(index,found.fields,&vsrc_size);
 		if (!vsrc_size)
 			value_dst = NULL;
 		else
@@ -913,7 +918,7 @@ int idx_key_try_set(FSingSet *index,FTransformData *tdata)
 
 	while (hblock[hnum].fields.space_used)
 		{
-		if (compareKeys(index,&hblock[hnum].fields,tdata)) 
+		if (compareKeys(index,hblock[hnum],tdata)) 
 			{
 			rv = _replace_key_value(index,&hblock[hnum],tdata);
 			if (rv & (KS_CHANGED | KS_MARKED))
@@ -975,7 +980,7 @@ int idx_key_set(FSingSet *index,FTransformData *tdata)
 
 #define CHECK_HEADER_IN_BLOCK(HNUM) case (HNUM): do {\
 				FAILURE_CHECK(!hblock[(HNUM)].fields.space_used,"empty header in chain"); \
-				if (compareKeys(index,&hblock[(HNUM)].fields,tdata)) \
+				if (compareKeys(index,hblock[(HNUM)],tdata)) \
 					{ \
 					rv = _replace_key_value(index,&hblock[(HNUM)],tdata); \
 					if (rv & (KS_CHANGED | KS_MARKED)) \
@@ -999,7 +1004,7 @@ int idx_key_set(FSingSet *index,FTransformData *tdata)
 		if (hblock[KH_BLOCK_LAST].fields.space_used)
 			{ // В последнем блоке тоже данные
 			FAILURE_CHECK(!hblock[KH_BLOCK_LAST].fields.chain_stop,"open chain");
-			if (compareKeys(index,&hblock[KH_BLOCK_LAST].fields,tdata))
+			if (compareKeys(index,hblock[KH_BLOCK_LAST],tdata))
 				{
 				rv = _replace_key_value(index,&hblock[KH_BLOCK_LAST],tdata);
 				if (rv & (KS_CHANGED | KS_MARKED))
@@ -1111,9 +1116,9 @@ static void _del_from_hash_table(FSingSet *index,unsigned hash,FKeyHead *to_del,
 	if (to_del != &last_head->fields)
 		{
 		*to_del = last_head->fields; // Если удаляем не последний, копируем последний в удаляемый
-		lck_waitForReaders(index->lock_set); // Стираемого нет в цепочке, дождемся пока дочитают его хвост
+		lck_waitForReaders(index->lock_set); // Т.к. мы перемещаем назад по цепочке то можем разминуться с читающим. Ждем когда он дойдет до конца цепочки
 		last_head->whole = ((uint64_t)KH_ZERO_REF << 32) + KH_ZERO_REF; // Сдвигаем ссылку в хеш-таблице на один (надо также сбросить space_used, поэтому сбрасываем обе ссылки)
-		_del_key_rest(index,okeyhead);
+		_del_key_rest(index,okeyhead); 
 		return;
 		}
 	last_head->whole = ((uint64_t)KH_ZERO_REF << 32) + KH_ZERO_REF; // Удаляем стираемый из цепочки
@@ -1131,6 +1136,7 @@ static void _del_one_after_hash_table(FSingSet *index,unsigned hash,FKeyHead *to
 	*to_del = last_head->fields; 
 	lck_waitForReaders(index->lock_set); 
 	*ht_links_ref = KH_ZERO_REF; 
+	lck_waitForReaders(index->lock_set); // Приходится еще раз ждать ридеров
 	kh_free_block(index,last_head,last_head_idx,1); 
 	_del_key_rest(index,okeyhead);
 	}
@@ -1148,6 +1154,7 @@ void _del_last_after_hash_table(FSingSet *index,unsigned hash,FKeyHeadGeneral *l
 	_del_key_rest(index,okeyhead);
 	}
 
+// Удаляем последний в блоке из двух элементов не после хеш-таблицы 
 void _del_last_in_block2(FSingSet *index,unsigned hash,FKeyHeadGeneral *last_head,element_type last_block_idx,FKeyHeadGeneral *prev_links,element_type prev_links_idx)
 	{
 	lck_memoryLock(index); // Блокируем операции с памятью
@@ -1157,7 +1164,7 @@ void _del_last_in_block2(FSingSet *index,unsigned hash,FKeyHeadGeneral *last_hea
 	wkeyhead.chain_stop = 1; // Ставим ему chain_stop
 	prev_links->fields = wkeyhead; // Копируем на место ссылки на этот блок
 	lck_waitForReaders(index->lock_set);
-	kh_free_block(index,&last_head[-1],last_block_idx,2); // Удаляем этот блок
+	kh_free_block(index,&last_head[-1],last_block_idx,2); // Удаляем этот блок. Это безопасно, т.к. читатели остановятся на chain_stop
 	_del_key_rest(index,okeyhead);
 	cp_mark_hblock_dirty(index->used_cpages,prev_links_idx);
 	}
@@ -1187,12 +1194,13 @@ void _del_from_chain_block2(FSingSet *index,unsigned hash,FKeyHead *to_del,eleme
 	wkeyhead.chain_stop = 0;
 	*to_del = wkeyhead;
 	lck_waitForReaders(index->lock_set);
-	wkeyhead = (last_head - 1)->fields; // Единственный оставшийся в этом блоке в восьмой элемент предыдущей цепочки
+	wkeyhead = (last_head - 1)->fields; // Копируем единственный оставшийся в этом блоке в восьмой элемент предыдущей цепочки
 	wkeyhead.chain_stop = 1; // Ставим ему chain_stop
-	prev_links->fields = wkeyhead; // Копируем на место ссылки на этот блок
-	kh_free_block(index,&last_head[-1],last_block_idx,2); // Удаляем этот блок
-	_del_key_rest(index,okeyhead);
 	cp_mark_hblock_dirty(index->used_cpages,prev_links_idx);
+	prev_links->fields = wkeyhead; // Копируем на место ссылки на этот блок
+	_del_key_rest(index,okeyhead);
+	lck_waitForReaders(index->lock_set);
+	kh_free_block(index,&last_head[-1],last_block_idx,2); // Удаляем этот блок
 	}
 
 void _del_from_chain(FSingSet *index,unsigned hash,FKeyHead *to_del,element_type to_del_idx,FKeyHeadGeneral *last_head,element_type last_head_idx)
@@ -1209,8 +1217,9 @@ void _del_from_chain(FSingSet *index,unsigned hash,FKeyHead *to_del,element_type
 	*to_del = wkeyhead;
 	lck_waitForReaders(index->lock_set);
 	(last_head - 1)->fields.chain_stop = 1; // Ставим chain_stop предпоследнему
-	kh_free_last_from_chain(index,last_head,last_head_idx); // Удаляем последний
 	_del_key_rest(index,okeyhead);
+	lck_waitForReaders(index->lock_set);
+	kh_free_last_from_chain(index,last_head,last_head_idx); // Удаляем последний
 	}
 
 int idx_key_del(FSingSet *index,FTransformData *tdata)
@@ -1230,7 +1239,7 @@ int idx_key_del(FSingSet *index,FTransformData *tdata)
 	for (hnum = ht_chain->start; table_block[hnum].fields.space_used; hnum += ht_chain->dir)
 		{
 		last_head = &table_block[hnum];
-		if (compareKeys(index,&last_head->fields,tdata))
+		if (compareKeys(index,*last_head,tdata))
 			{
 			to_del = &last_head->fields;
 			hnum += ht_chain->dir;
@@ -1251,13 +1260,13 @@ int idx_key_del(FSingSet *index,FTransformData *tdata)
 		{ // Особый случай, продолжение из одного элемента
 		if (to_del)
 			return _del_one_after_hash_table(index,tdata->hash,to_del,last_head,inum,ht_links_ref),KS_DELETED;
-		if (compareKeys(index,&last_head->fields,tdata))
+		if (compareKeys(index,*last_head,tdata))
 			return _del_last_after_hash_table(index,tdata->hash,last_head,inum,ht_links_ref),KS_DELETED;
 		return KS_SUCCESS;
 		}
 	if (to_del)
 		goto idx_key_del_found;
-	if (compareKeys(index,&last_head->fields,tdata))
+	if (compareKeys(index,*last_head,tdata))
 		{ khb_idx = inum; to_del = &last_head->fields; goto idx_key_del_found; }
 	do 
 		{
@@ -1274,7 +1283,7 @@ int idx_key_del(FSingSet *index,FTransformData *tdata)
 			}
 		last_size++;
 		FAILURE_CHECK(last_size > KEYHEADS_IN_BLOCK,"too long chain");
-		if (compareKeys(index,&last_head->fields,tdata))
+		if (compareKeys(index,*last_head,tdata))
 			{
 			if (last_head->fields.chain_stop)
 				{
@@ -1314,8 +1323,26 @@ idx_key_del_found:
 		return _del_from_chain_block2(index,tdata->hash,to_del,khb_idx,last_head,inum,prev_block,prev_block_idx),KS_DELETED;
 	return _del_from_chain(index,tdata->hash,to_del,khb_idx,last_head,inum + (last_size - 1) * KEY_HEAD_SIZE),KS_DELETED;
 	}
-	
-void del_unmarked_from_hash_chain(FSingSet *index,unsigned hash,CSingIterateCallbackRaw cb,void *param)
+
+static void resultOutput(FSingSet *kvset,const FKeyHeadGeneral head,FWriteBufferSet *wbs)
+	{
+	element_type *key_rest = (head.data.size_and_value > 3) ? pagesPointer(kvset,head.fields.extra) : NULL;
+	char *name = fbw_get_ref(wbs);
+	unsigned size = cd_decode(&name[0],&head.fields,key_rest);
+
+	if (head.fields.has_value)
+		{
+		element_type *value = &key_rest[head.fields.size];
+		unsigned vsize = VALUE_SIZE_BYTES((FValueHead *)value);
+		name[size++] = kvset->head->delimiter;
+		memcpy(&name[size],(const char *)&value[1],vsize);
+		size += vsize;
+		}
+	name[size++] = '\n';
+	fbw_shift_pos(wbs,size);
+	}
+
+static void del_unmarked_from_hash_chain(FSingSet *index,unsigned hash,FWriteBufferSet *wbs)
 	{
 	FKeyHeadGeneral *key_head; // Заголовок для удаления (найденный)
 	FKeyHeadGeneral *last_head; // Последний заголовок в цепочке
@@ -1329,7 +1356,6 @@ void del_unmarked_from_hash_chain(FSingSet *index,unsigned hash,CSingIterateCall
 	unsigned last_size = 0; // Размер последнего фрагмента цепочки
 	unsigned diff_mark = index->head->state_flags & SF_DIFF_MARK;
 	element_type last_block_idx = 0,prev_block_idx = 0,khb_idx;
-	element_type *key_rest;
 	FHashTableChain const *ht_chain;
 	
 	table_block = get_hashtable_entry(index,hash);
@@ -1400,29 +1426,22 @@ del_unmarked_from_hash_chain_begin:
 		}
 
 del_unmarked_from_hash_chain_found:
-
 	lck_memoryLock(index); // Блокируем операции с памятью
 	_change_counter(index,hash,-1);
 	
 	okeyhead = key_head->fields;
-	key_rest = (key_head->data.size_and_value > 3) ? pagesPointer(index,key_head->fields.extra) : NULL;
 
 #ifdef LOG_OPERATION
 	static char key_buf[MAX_KEY_SOURCE + 1];
+	element_type *key_rest = (key_head->data.size_and_value > 3) ? pagesPointer(index,key_head->fields.extra) : NULL;
 	unsigned key_size = cd_decode(&key_buf[0],&key_head->fields,key_rest);
 	key_buf[key_size] = 0;
 	
 	FORMATTED_LOG("deleting key %s\n",key_buf);
 #endif
-	if (key_head->fields.has_value)
-		{
-		FValueHeadGeneral *old_vhead = (FValueHeadGeneral *)&key_rest[key_head->fields.size];
-		element_type *value = &key_rest[key_head->fields.size + VALUE_HEAD_SIZE];
-		unsigned vsize = VALUE_SIZE_BYTES(&old_vhead->fields);
-		(*cb)(&key_head->fields,key_rest,value,vsize,param);
-		}
-	else
-		(*cb)(&key_head->fields,key_rest,NULL,0,param);
+	fbw_add_sym(wbs,'-');
+	resultOutput(index,*key_head,wbs);
+	fbw_commit(wbs);
 
 	if (key_head != last_head)
 		{ // Если удаляем не последний, копируем последний в удаляемый
@@ -1434,60 +1453,59 @@ del_unmarked_from_hash_chain_found:
 		else
 			cp_mark_hash_entry_dirty(index->used_cpages,hash);
 		}
-	// Ждем ридеров (иначе последний перемещенный элемент может разминуться с ридером, идущим по цепочке)
 	lck_waitForReaders(index->lock_set);
 	// Удаляем последний элемент
 	if (!last_block)
 		{ // Последний заголовок находится в хеш-таблице, hnum не в начале цепочки
 		// Сдвигаем ссылку в хеш-таблице на один (надо также сбросить space_used, поэтому сбрасываем обе ссылки)
+		cp_mark_hash_entry_dirty(index->used_cpages,hash);
 		last_head->whole = ((uint64_t)KH_ZERO_REF << 32) + KH_ZERO_REF; 
 		if (hnum - ht_chain->dir != ht_chain->start)
 			(last_head - ht_chain->dir)->fields.chain_stop = 1;  // Ставим последнему в хеш-таблице chain_stop
 		_del_key_rest(index,okeyhead);
-		cp_mark_hash_entry_dirty(index->used_cpages,hash);
 		lck_memoryUnlock(index);
 		goto del_unmarked_from_hash_chain_begin;
 		}
 	if (last_size == 1)
 		{ // Единственный элемент в блоке, ссылка идет из хеш-таблицы
-		table_block[ht_links_num].links_array.links[ht_chain->link_num] = KH_ZERO_REF; // Обнуляем ссылку в хеш-таблице.
-		if (ht_links_num != ht_chain->start)
-			table_block[ht_links_num - ht_chain->dir].fields.chain_stop = 1;  // Ставим последнему в хеш-таблице chain_stop
-		kh_free_block(index,last_head,last_block_idx + KEY_HEAD_SIZE * hnum,1); // Удаляем этот блок
-		_del_key_rest(index,okeyhead);
 		cp_mark_hash_entry_dirty(index->used_cpages,hash);
+		table_block[ht_links_num].links_array.links[ht_chain->link_num] = KH_ZERO_REF; // Обнуляем ссылку в хеш-таблице.
+		_del_key_rest(index,okeyhead);
+		lck_waitForReaders(index->lock_set);
+		kh_free_block(index,last_head,last_block_idx + KEY_HEAD_SIZE * hnum,1); // Удаляем этот блок
 		lck_memoryUnlock(index);
 		goto del_unmarked_from_hash_chain_begin;
 		}
 	if (prev_block && last_size == 2)
 		{ 
+		cp_mark_hblock_dirty(index->used_cpages,prev_block_idx);
 		wkeyhead = (last_head - 1)->fields; // Единственный оставшийся в этом блоке в восьмой элемент предыдущей цепочки
 		wkeyhead.chain_stop = 1; // Ставим ему chain_stop
 		prev_block[KH_BLOCK_LAST].fields = wkeyhead; // Копируем на место ссылки на этот блок
-		kh_free_block(index,&last_head[-1],last_block_idx + KEY_HEAD_SIZE * (hnum - 1),2); // Удаляем этот блок
 		_del_key_rest(index,okeyhead);
-		cp_mark_hblock_dirty(index->used_cpages,prev_block_idx);
+		lck_waitForReaders(index->lock_set);
+		kh_free_block(index,&last_head[-1],last_block_idx + KEY_HEAD_SIZE * (hnum - 1),2); // Удаляем этот блок
 		lck_memoryUnlock(index);
 		goto del_unmarked_from_hash_chain_begin;
 		}
-	
 	(last_head - 1)->fields.chain_stop = 1; // Ставим chain_stop предпоследнему
-	kh_free_last_from_chain(index,last_head,last_block_idx + KEY_HEAD_SIZE * hnum); // Удаляем последний
 	_del_key_rest(index,okeyhead);
+	lck_waitForReaders(index->lock_set);
+	kh_free_last_from_chain(index,last_head,last_block_idx + KEY_HEAD_SIZE * hnum); // Удаляем последний
 	lck_memoryUnlock(index);
 	goto del_unmarked_from_hash_chain_begin;
 	}
 
 // Пробегаем по всем ненулевым счетчикам или элементам хеша если counters == NULL. 
 // Для каждой цепочки ищем непомеченные в маске элементы и удаляем их
-void idx_del_unmarked(FSingSet *index,unsigned *counters,CSingIterateCallbackRaw cb,void *param)
+void idx_del_unmarked(FSingSet *index,unsigned *counters,FWriteBufferSet *wbs)
 	{
 	unsigned i,j;
 	
 	if (!index->counters || !counters)
 		{
 		for (i = 0; i < index->hashtable_size; i++)
-			del_unmarked_from_hash_chain(index,i,cb,param);
+			del_unmarked_from_hash_chain(index,i,wbs);
 		return;
 		}
 	
@@ -1495,122 +1513,93 @@ void idx_del_unmarked(FSingSet *index,unsigned *counters,CSingIterateCallbackRaw
 		{
 		if (index->counters[i] <= counters[i]) continue;
 		for (j = COUNTER_TO_HASH(i); j < COUNTER_TO_HASH(i+1); j++)
-			del_unmarked_from_hash_chain(index,j,cb,param);
+			del_unmarked_from_hash_chain(index,j,wbs);
 		}
 	if (index->counters[i] > counters[i])
-		{
 		for (j = COUNTER_TO_HASH(i) ; j < index->hashtable_size; j++)
-			del_unmarked_from_hash_chain(index,j,cb,param);
-		}
+			del_unmarked_from_hash_chain(index,j,wbs);
 	}
 	
-static inline void cb_call(FSingSet *index,FKeyHeadGeneral *key_head,void *cb,int raw,void *param)
+static inline void key_output(FSingSet *kvset,FKeyHeadGeneral key_data,FWriteBufferSet *wbs)
 	{
-	unsigned vsize;
-	element_type *key_rest,*value;
-	char *value_data;
-	
-	if (key_head->data.size_and_value > 3)
-		{
-		key_rest = pagesPointer(index,key_head->fields.extra);
-		if (key_head->fields.has_value)
-			{
-			value = &key_rest[key_head->fields.size];
-			if (!key_head->fields.size)
-				key_rest = NULL;
-			value_data = (char *)&value[1];
-			vsize = VALUE_SIZE_BYTES((FValueHead *)value);
-			}
-		else
-			value_data = NULL, vsize = 0;
-		}
-	else
-		key_rest = NULL, value_data = NULL, vsize = 0;
-	if (raw)
-		{ (*(CSingIterateCallbackRaw)cb)(&key_head->fields,key_rest,value_data,vsize,param); return; }
-	char keybuf[MAX_KEY_SOURCE + 1];
-	unsigned size = cd_decode(keybuf,&key_head->fields,key_rest);
-	keybuf[size] = 0;
-	(*(CSingIterateCallback)cb)(keybuf,value_data,vsize,NULL,param);
+	fbw_check_space(wbs);
+	if (kvset->head->use_flags & UF_PHANTOM_KEYS)
+		fbw_add_sym(wbs,key_data.fields.diff_mark?'-':'+');
+	resultOutput(kvset,key_data,wbs);
 	}
 
-void process_hash_chain(FSingSet *index,unsigned hash,void *cb,int raw,void *param)
+static int dump_hash_chain(FSingSet *index,unsigned hash,FWriteBufferSet *wbs)
 	{
-	FKeyHeadGeneral *prev_head,*key_head = NULL;
+	FKeyHeadGeneral next_data,key_data;
 	FKeyHeadGeneral *table_block; // Блок в хеш-таблице
 	FKeyHeadGeneral *last_block; // Последний блок в цепочке (не в хеш-таблице)
 	unsigned inum,hnum;
 	FHashTableChain const *ht_chain;
+	FReaderLock rlock = NORMAL_LOCK_INIT;
 	
+	rlock.keep = 1;
+	lck_readerLock(index->lock_set,&rlock);
 	table_block = get_hashtable_entry(index,hash);
 	ht_chain = &HT_CHAINS[hash & 1];
 	hnum = ht_chain->start;
 
-	if (table_block[hnum].fields.space_used)
+	key_data.whole = __atomic_load_n(&table_block[hnum].whole,__ATOMIC_RELAXED);
+	while (key_data.fields.space_used)
 		{
-		key_head = &table_block[hnum];
-		if (key_head->data.size_and_value > 3) 
-			__builtin_prefetch(pagesPointer(index,key_head->fields.extra));
-		hnum += ht_chain->dir;
-		while (table_block[hnum].fields.space_used)
-			{
-			prev_head = key_head;
-			key_head = &table_block[hnum];
-			if (key_head->data.size_and_value > 3) 
-				__builtin_prefetch(pagesPointer(index,key_head->fields.extra));
-			hnum += ht_chain->dir;
-			cb_call(index,prev_head,cb,raw,param);
-			}
+		next_data = table_block[hnum += ht_chain->dir];
+		if (next_data.fields.space_used && next_data.data.size_and_value > 3)
+			__builtin_prefetch(pagesPointer(index,next_data.fields.extra));
+		key_output(index,key_data,wbs);
+		if (!lck_readerUnlock(index->lock_set,&rlock))
+			return 1; // Our lock was dropped, should restart
+		key_data.whole = __atomic_load_n(&table_block[hnum].whole,__ATOMIC_RELAXED);
 		}
-	inum = table_block[hnum].links_array.links[ht_chain->link_num];
+	inum = key_data.links_array.links[ht_chain->link_num];
 	if (inum == KH_ZERO_REF)
 		{
-		if (key_head)
-			cb_call(index,key_head,cb,raw,param);
-		return;
+		rlock.keep = 0;
+		return (!lck_readerUnlock(index->lock_set,&rlock)) ? 1 : 0;
 		}
-	while (1)
+process_hash_chain_next_cycle:
+	last_block = (FKeyHeadGeneral *)regionPointer(index,KH_BLOCK_IDX(inum),KH_BLOCK_SIZE);
+	hnum = KH_BLOCK_NUM(inum);
+	while (hnum < KH_BLOCK_LAST)
 		{
-		last_block = (FKeyHeadGeneral *)regionPointer(index,KH_BLOCK_IDX(inum),KH_BLOCK_SIZE);
-		hnum = KH_BLOCK_NUM(inum);
-		
-		while (hnum < KH_BLOCK_LAST)
-			{
-			prev_head = key_head;
-			key_head = &last_block[hnum];
-			FAILURE_CHECK(!key_head->fields.space_used,"unused head in chain");
-			if (key_head->data.size_and_value > 3)
-				__builtin_prefetch(pagesPointer(index,key_head->fields.extra));
-			if (prev_head)
-				cb_call(index,prev_head,cb,raw,param);
-			if (key_head->fields.chain_stop)
-				{ cb_call(index,key_head,cb,raw,param); return; }
-			hnum++;
-			}
-		if (last_block[KH_BLOCK_LAST].fields.space_used)
+		key_data.whole = __atomic_load_n(&last_block[hnum].whole,__ATOMIC_RELAXED);
+		if (!key_data.fields.chain_stop)
 			{ 
-			prev_head = key_head;
-			key_head = &last_block[KH_BLOCK_LAST];
-			FAILURE_CHECK(!key_head->fields.chain_stop,"open chain");
-			if (key_head->data.size_and_value > 3) 
-				__builtin_prefetch(pagesPointer(index,key_head->fields.extra));
-			if (prev_head)
-				cb_call(index,prev_head,cb,raw,param);
-			cb_call(index,key_head,cb,raw,param);
-			return;
+			next_data = last_block[++hnum];
+			if (next_data.fields.space_used && next_data.data.size_and_value > 3)
+				__builtin_prefetch(pagesPointer(index,next_data.fields.extra));
 			}
-		inum = last_block[KH_BLOCK_LAST].links.next;
+		key_output(index,key_data,wbs);
+		if (!lck_readerUnlock(index->lock_set,&rlock))
+			return 1; 
+		if (key_data.fields.chain_stop)
+			return 0; 
 		}
+	key_data.whole = __atomic_load_n(&last_block[KH_BLOCK_LAST].whole,__ATOMIC_RELAXED);
+	if (!key_data.fields.space_used)
+		{
+		inum = key_data.links.next;
+		goto process_hash_chain_next_cycle;
+		}
+	key_output(index,key_data,wbs);
+	return (!lck_readerUnlock(index->lock_set,&rlock)) ? 1 : 0;
 	}
 	
-void idx_process_all(FSingSet *index,void *cb,int raw,void *param)
+void idx_dump_all(FSingSet *index,FWriteBufferSet *wbs)
 	{
 	unsigned i,j;
 	
 	if (!index->counters)
 		{
 		for (i = 0; i < index->hashtable_size; i++)
-			process_hash_chain(index,i,cb,raw,param);
+			{
+			while (dump_hash_chain(index,i,wbs))
+				fbw_rollback(wbs);
+			fbw_commit(wbs);
+			}
 		return;
 		}
 	
@@ -1618,12 +1607,20 @@ void idx_process_all(FSingSet *index,void *cb,int raw,void *param)
 		{
 		if (!index->counters[i]) continue;
 		for (j = COUNTER_TO_HASH(i); j < COUNTER_TO_HASH(i+1); j++)
-			process_hash_chain(index,j,cb,raw,param);
+			{
+			while (dump_hash_chain(index,j,wbs))
+				fbw_rollback(wbs);
+			fbw_commit(wbs);
+			}
 		}
 	if (index->counters[i])
 		{
 		for (j = COUNTER_TO_HASH(i) ; j < index->hashtable_size; j++)
-			process_hash_chain(index,j,cb,raw,param);
+			{
+			while (dump_hash_chain(index,j,wbs))
+				fbw_rollback(wbs);
+			fbw_commit(wbs);
+			}
 		}
 	}
 

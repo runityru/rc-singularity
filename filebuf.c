@@ -7,191 +7,233 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h> 
+#include <sys/mman.h>
 #include <unistd.h>
 
 #include "filebuf.h"
 #include "utils.h"
 
-static void _buffer_release(FBufferSet *set,unsigned buf_num, unsigned to_state)
+static void _buffer_release(FIOBufferState *state_data,unsigned to_state)
 	{
-	FIOBuffer *work = &set->buffers[buf_num];
-	pthread_mutex_lock(&work->buffer_lock); 
-	work->state = to_state;
-	pthread_cond_signal(&work->state_changed);
-	pthread_mutex_unlock(&work->buffer_lock);
+	pthread_mutex_lock(&state_data->buffer_lock); 
+	state_data->state = to_state;
+	pthread_cond_signal(&state_data->state_changed);
+	pthread_mutex_unlock(&state_data->buffer_lock);
 	}
 
-static void _buffer_acquire(FBufferSet *set,unsigned buf_num, unsigned from_state)
+static void _buffer_acquire(FIOBufferState *state_data,unsigned from_state)
 	{
-	FIOBuffer *work = &set->buffers[buf_num];
-	pthread_mutex_lock(&work->buffer_lock); 
-	while (work->state == from_state)
-		pthread_cond_wait(&work->state_changed,&work->buffer_lock);
-	pthread_mutex_unlock(&work->buffer_lock);
+	pthread_mutex_lock(&state_data->buffer_lock); 
+	while (state_data->state == from_state)
+		pthread_cond_wait(&state_data->state_changed,&state_data->buffer_lock);
+	pthread_mutex_unlock(&state_data->buffer_lock);
 	}
 
 static void *read_thread(void *param)
 	{
-	FBufferSet *set = (FBufferSet *)param;
+	FReadBufferSet *set = (FReadBufferSet *)param;
 	unsigned cur_buf_num = 0;
-	FIOBuffer *workbuf = &set->buffers[0];
+	FReadBuffer *workbuf = &set->buffers[0];
 	size_t rdd;
 	unsigned state;
 read_thread_repeat:
-	rdd = file_read(set->fd,&workbuf->data[MOVABLE_TAIL],BUFFER_SIZE);
+	rdd = file_read(set->fd,&workbuf->data[KEY_BUFFER_SIZE],BUFFER_SIZE);
 	workbuf->size = rdd;
-	workbuf->data[rdd + MOVABLE_TAIL] = 0;
+	workbuf->data[rdd + KEY_BUFFER_SIZE] = 0;
 	state = (rdd == BUFFER_SIZE) ? BUFF_STATE_PROCESS : BUFF_STATE_STOP;
-	_buffer_release(set,cur_buf_num,state);
+	_buffer_release(&workbuf->state_data,state);
 	if (state == BUFF_STATE_STOP)
 		return (void *)0;
 	cur_buf_num = 1 - cur_buf_num;
-	_buffer_acquire(set,cur_buf_num,BUFF_STATE_PROCESS);
 	workbuf = &set->buffers[cur_buf_num];
-	if (workbuf->state == BUFF_STATE_STOP)
+	_buffer_acquire(&workbuf->state_data,BUFF_STATE_PROCESS);
+	if (workbuf->state_data.state == BUFF_STATE_STOP)
 		return (void *)0;
 	goto read_thread_repeat;
 	}
 
+static int _init_state(FIOBufferState *state_data)
+	{
+	if (pthread_mutex_init(&state_data->buffer_lock,NULL))
+		return 1;
+	if (pthread_cond_init(&state_data->state_changed,NULL))
+		return pthread_mutex_destroy(&state_data->buffer_lock),1;
+	state_data->state = BUFF_STATE_FILL;
+	return 0;
+	}
+
+FReadBufferSet *fbr_create(const char *filename)
+	{
+	FReadBufferSet *rv;
+	if (posix_memalign((void **)&rv,CACHE_LINE_SIZE,sizeof(FReadBufferSet)))
+		return NULL;
+	rv->thread_started = 0;
+	rv->no_close = 0;
+	rv->buffers[0].size = rv->buffers[1].size = 0;
+	rv->mbuf_num = 0;
+	rv->mbuf = &rv->buffers[0];
+	rv->buffers[0].state_data.state = rv->buffers[1].state_data.state = BUFF_STATE_FREE;
+	if ((rv->fd = open(filename,O_RDONLY)) == -1 || _init_state(&rv->buffers[0].state_data) || _init_state(&rv->buffers[1].state_data)) 
+		return fbr_finish(rv),NULL;
+	if (pthread_create(&rv->io_thread,NULL,read_thread,rv))
+		return fbr_finish(rv),NULL;
+	rv->thread_started = 1;
+	return rv;
+	}
+
+void fbr_finish(FReadBufferSet *set)
+	{
+	if (!set)
+		return;
+	if (set->thread_started)
+		{
+		_buffer_release(&set->mbuf->state_data,BUFF_STATE_STOP);
+		pthread_join(set->io_thread,NULL);
+		}
+	if (set->fd != -1 && !set->no_close)
+		close(set->fd);
+	if (set->buffers[0].state_data.state != BUFF_STATE_FREE)
+		pthread_cond_destroy(&set->buffers[0].state_data.state_changed),pthread_mutex_destroy(&set->buffers[0].state_data.buffer_lock);
+	if (set->buffers[1].state_data.state != BUFF_STATE_FREE)
+		pthread_cond_destroy(&set->buffers[1].state_data.state_changed),pthread_mutex_destroy(&set->buffers[1].state_data.buffer_lock);
+	free(set);
+	}
+
+char *fbr_first_block(FReadBufferSet *set,int *size)
+	{
+	FReadBuffer *workbuf = &set->buffers[0];
+	_buffer_acquire(&workbuf->state_data,BUFF_STATE_FILL);
+	return (*size = workbuf->size) ? &workbuf->data[KEY_BUFFER_SIZE] : NULL;
+	}
+
+char *fbr_next_block(FReadBufferSet *set,int *size)
+	{
+	if (set->mbuf->state_data.state == BUFF_STATE_STOP)
+		return NULL;
+	_buffer_release(&set->mbuf->state_data,BUFF_STATE_FILL);
+	set->mbuf_num = 1 - set->mbuf_num;
+	set->mbuf = &set->buffers[set->mbuf_num];
+	_buffer_acquire(&set->mbuf->state_data,BUFF_STATE_FILL);
+	*size = set->mbuf->size;
+	return &set->mbuf->data[KEY_BUFFER_SIZE];
+	}
+
+char *fbr_next_block_partial(FReadBufferSet *set,int *size,int *crp)
+	{
+	int tocpy;
+	FReadBuffer *obuf = set->mbuf;
+	if (set->mbuf->state_data.state == BUFF_STATE_STOP)
+		return &set->mbuf->data[KEY_BUFFER_SIZE];
+	set->mbuf_num = 1 - set->mbuf_num;
+	set->mbuf = &set->buffers[set->mbuf_num];
+	_buffer_acquire(&set->mbuf->state_data,BUFF_STATE_FILL);
+	if ((tocpy = *size - *crp))
+		memcpy(&set->mbuf->data[KEY_BUFFER_SIZE - tocpy],&obuf->data[KEY_BUFFER_SIZE + *crp],tocpy);
+	_buffer_release(&obuf->state_data,BUFF_STATE_FILL);
+	*size = set->mbuf->size;
+	*crp = -tocpy;
+	return &set->mbuf->data[KEY_BUFFER_SIZE];
+	}
+
 static void *write_thread(void *param)
 	{
-	FBufferSet *set = (FBufferSet *)param;
+	FWriteBufferSet *set = (FWriteBufferSet *)param;
 	unsigned cur_buf_num = 0;
-	FIOBuffer *workbuf = &set->buffers[0];
+	FWriteBuffer *workbuf = &set->buffers[0];
 write_thread_repeat:
-	_buffer_acquire(set,cur_buf_num,BUFF_STATE_FILL);
-	file_write(set->fd,&workbuf->data[MOVABLE_TAIL],workbuf->size);
-	if (workbuf->state == BUFF_STATE_STOP)
+	_buffer_acquire(&workbuf->state_data,BUFF_STATE_FILL);
+	file_write(set->fd,workbuf->data,workbuf->filled_size);
+	if (workbuf->state_data.state == BUFF_STATE_STOP)
 		return (void *)0;
-	_buffer_release(set,cur_buf_num,BUFF_STATE_FILL);
+	workbuf->filled_size = 0;
+	_buffer_release(&workbuf->state_data,BUFF_STATE_FILL);
 	cur_buf_num = 1 - cur_buf_num;
 	workbuf = &set->buffers[cur_buf_num];
 	goto write_thread_repeat;
 	}
 
-static void _init(FBufferSet *set)
+static int _init_wbuffer(FWriteBuffer *buf)
 	{
-	pthread_mutex_init(&set->buffers[0].buffer_lock,NULL);
-	pthread_cond_init(&set->buffers[0].state_changed,NULL);
-	set->buffers[0].state = BUFF_STATE_FILL;
-	set->buffers[0].size = 0;
-	pthread_mutex_init(&set->buffers[1].buffer_lock,NULL);
-	pthread_cond_init(&set->buffers[1].state_changed,NULL);
-	set->buffers[1].state = BUFF_STATE_FILL;
-	set->buffers[1].size = 0;
-	set->mbuf_num = 0;
-	set->mbuf = &set->buffers[0];
+	buf->total_size = BUFFER_SIZE + WRITE_BUFFER_GROW;
+	buf->filled_size = 0;
+	buf->state_data.state = BUFF_STATE_FREE;
+	buf->data = mmap(NULL, buf->total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	return (buf->data == MAP_FAILED || _init_state(&buf->state_data)) ? 1 : 0;
 	}
 
-int fb_init_r(FBufferSet *set,const char *filename)
+FWriteBufferSet *fbw_create(const char *filename)
 	{
-	_init(set);
-	if ((set->fd = open(filename,O_RDONLY)) == -1) return 0;
-	set->no_close = 0;
-	pthread_create(&set->io_thread,NULL,read_thread,set);
-	return 1;
-	}
-
-int fb_init_w(FBufferSet *set,const char *filename)
-	{
-	_init(set);
-	if (filename)
-		{
-		if ((set->fd = open(filename,O_WRONLY | O_TRUNC | O_CREAT,S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)) == -1) return 0;
-		set->no_close = 0;
-		}
-	else
-		set->fd = STDOUT_FILENO,set->no_close = 1;
-	pthread_create(&set->io_thread,NULL,write_thread,set);
-	return 1;
-	}
-
-char *fb_first_block(FBufferSet *set,int *size)
-	{
-	FIOBuffer *workbuf = &set->buffers[0];
-	_buffer_acquire(set,0,BUFF_STATE_FILL);
-	*size = workbuf->size;
-	return workbuf->size ? &workbuf->data[MOVABLE_TAIL] : NULL;
-	}
-
-char *fb_next_block(FBufferSet *set,int *size)
-	{
-	if (set->mbuf->state == BUFF_STATE_STOP)
+	FWriteBufferSet *rv;
+	if (posix_memalign((void **)&rv,CACHE_LINE_SIZE,sizeof(FReadBufferSet)))
 		return NULL;
-	_buffer_release(set,set->mbuf_num,BUFF_STATE_FILL);
-	set->mbuf_num = 1 - set->mbuf_num;
-	_buffer_acquire(set,set->mbuf_num,BUFF_STATE_FILL);
-	set->mbuf = &set->buffers[set->mbuf_num];
-	*size = set->mbuf->size;
-	return &set->mbuf->data[MOVABLE_TAIL];
+	rv->thread_started = 0;
+	rv->mbuf_num = 0;
+	rv->commited_pos = 0;
+	rv->mbuf = &rv->buffers[0];
+	if (filename)
+		rv->fd = open(filename,O_WRONLY | O_TRUNC | O_CREAT,S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH), rv->no_close = 0;
+	else
+		rv->fd = STDOUT_FILENO, rv->no_close = 1;
+	int init_res = _init_wbuffer(&rv->buffers[0]) + _init_wbuffer(&rv->buffers[1]);
+	if (rv->fd == -1 || init_res) 
+		return fbw_finish(rv),NULL;
+	if (pthread_create(&rv->io_thread,NULL,write_thread,rv))
+		return fbw_finish(rv),NULL;
+	rv->thread_started = 1;
+	return rv;
 	}
 
-char *fb_next_block_partial(FBufferSet *set,int *size,int *crp)
+static void _free_wbuffer(FWriteBuffer *buf)
 	{
-	int tocpy,onum = set->mbuf_num;
-	if (set->mbuf->state == BUFF_STATE_STOP)
-		return &set->mbuf->data[MOVABLE_TAIL];
-	set->mbuf_num = 1 - set->mbuf_num;
-	_buffer_acquire(set,set->mbuf_num,BUFF_STATE_FILL);
-	set->mbuf = &set->buffers[set->mbuf_num];
-	if ((tocpy = *size - *crp))
-		memcpy(&set->mbuf->data[MOVABLE_TAIL - tocpy],&set->buffers[onum].data[MOVABLE_TAIL + *crp],tocpy);
-	_buffer_release(set,onum,BUFF_STATE_FILL);
-	*size = set->mbuf->size;
-	*crp = -tocpy;
-	return &set->mbuf->data[MOVABLE_TAIL];
-	}
-
-void fb_added(FBufferSet *set,int size)
-	{
-	int obsize;
-	if ((obsize = (set->mbuf->size += size)) >= BUFFER_SIZE)
+	if (buf->state_data.state != BUFF_STATE_FREE)
 		{
-		char *rest = &set->mbuf->data[MOVABLE_TAIL + BUFFER_SIZE];
-		set->mbuf->size = BUFFER_SIZE;
-		_buffer_release(set,set->mbuf_num,BUFF_STATE_PROCESS);
-		set->mbuf_num = 1 - set->mbuf_num;
-		_buffer_acquire(set,set->mbuf_num,BUFF_STATE_PROCESS);
-		set->mbuf = &set->buffers[set->mbuf_num];
-		if ((set->mbuf->size = obsize - BUFFER_SIZE))
-			memcpy(&set->mbuf->data[MOVABLE_TAIL],rest,set->mbuf->size);
+		pthread_cond_destroy(&buf->state_data.state_changed);
+		pthread_mutex_destroy(&buf->state_data.buffer_lock);
+		}
+	if (buf->data != MAP_FAILED)
+		munmap(buf->data,buf->total_size);
+	}
+
+void fbw_finish(FWriteBufferSet *set)
+	{
+	if (!set)
+		return;
+	if (set->thread_started)
+		{
+		_buffer_release(&set->mbuf->state_data,BUFF_STATE_STOP);
+		pthread_join(set->io_thread,NULL);
+		}
+	if (set->fd != -1 && !set->no_close)
+		close(set->fd);
+	_free_wbuffer(&set->buffers[0]);
+	_free_wbuffer(&set->buffers[1]);
+	free(set);
+	}
+
+void fbw_check_space(FWriteBufferSet *set)
+	{
+	if (set->mbuf->filled_size + WRITE_BUFFER_GROW  > set->mbuf->total_size)
+		{
+		set->mbuf->data = mremap(set->mbuf->data,set->mbuf->total_size,set->mbuf->total_size + WRITE_BUFFER_GROW,MREMAP_MAYMOVE);
+		set->mbuf->total_size += WRITE_BUFFER_GROW;
 		}
 	}
 
-void fb_add(FBufferSet *set,const char *data,int size)
+void fbw_commit(FWriteBufferSet *set)
 	{
-	int rest,tocpy;
-	rest = BUFFER_SIZE - set->mbuf->size;
-	tocpy = size > rest ? rest : size;
-	memcpy(&set->mbuf->data[MOVABLE_TAIL + set->mbuf->size],data,tocpy);
-	data += tocpy;
-	set->mbuf->size += tocpy;
-	if (!(size -= tocpy))
+	if (set->mbuf->filled_size < BUFFER_SIZE)
+		{
+		set->commited_pos = set->mbuf->filled_size;
 		return;
-	_buffer_release(set,set->mbuf_num,BUFF_STATE_PROCESS);
+		}
+	unsigned rest_size = set->mbuf->filled_size & (DISK_PAGE_BYTES - 1);
+	set->mbuf->filled_size &= ~(DISK_PAGE_BYTES - 1);
+	char *data_rest = &set->mbuf->data[set->mbuf->filled_size];
+	_buffer_release(&set->mbuf->state_data,BUFF_STATE_PROCESS);
 	set->mbuf_num = 1 - set->mbuf_num;
-	_buffer_acquire(set,set->mbuf_num,BUFF_STATE_PROCESS);
 	set->mbuf = &set->buffers[set->mbuf_num];
-fb_add_repeat:
-	tocpy = size > BUFFER_SIZE ? BUFFER_SIZE : size;
-	memcpy(&set->mbuf->data[MOVABLE_TAIL],data,tocpy);
-	data += tocpy;
-	set->mbuf->size = tocpy;
-	if (!(size -= tocpy))
-		return;
-	_buffer_release(set,set->mbuf_num,BUFF_STATE_PROCESS);
-	set->mbuf_num = 1 - set->mbuf_num;
-	_buffer_acquire(set,set->mbuf_num,BUFF_STATE_PROCESS);
-	set->mbuf = &set->buffers[set->mbuf_num];
-	goto fb_add_repeat;
-	}
-
-void fb_finish(FBufferSet *set)
-	{
-	if (set->fd == -1) return;
-	_buffer_release(set,set->mbuf_num,BUFF_STATE_STOP);
-	pthread_join(set->io_thread,NULL);
-	if (!set->no_close)
-		close(set->fd);
-	set->fd = -1;
+	_buffer_acquire(&set->mbuf->state_data,BUFF_STATE_PROCESS);
+	if (rest_size)
+		memcpy(set->mbuf->data,data_rest,rest_size);
+	set->commited_pos = set->mbuf->filled_size = rest_size;
 	}

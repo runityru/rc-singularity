@@ -6,12 +6,91 @@
 
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "../index.h"
 #include "../cpages.h"
 #include "../config.h"
 #include "../rc_singularity.h"
 #include "common.h"
+
+int collision_search(unsigned hashtable_size,unsigned needed_hash,unsigned needed_cnt,char **words)
+	{
+	unsigned i;
+	char letters[36];
+	char word[10];
+	int cnt = 0,num = 0;
+	FTransformData tdata;
+
+	tdata.value_source = NULL;
+	tdata.head.fields.chain_stop = 1;
+	tdata.head.fields.diff_mark = 0;
+
+	for (i = 0; i < 26; i++)
+		letters[i] = 'a' + i;
+	for (i = 0; i < 10; i++)
+		letters[i + 26] = '0' + i;
+
+	while (cnt < 20)
+		{
+		int pos = 0;
+		int cnum = num++;
+		do 
+			{
+			word[pos++] = letters[cnum % 36];
+			cnum /= 36;
+			if (pos >= 9)
+				return cnt;
+			}
+		while (cnum);
+		word[pos] = 0;
+
+		cd_transform(word,MAX_KEY_SOURCE,&tdata);
+		tdata.hash = hashtable_size;
+		cd_encode(&tdata);
+		if (tdata.hash == needed_hash)
+			{
+			strcpy(words[cnt],word);
+			cnt++;
+			}
+		}
+	return cnt;
+	}
+
+element_type one_key_value_prep(FSingSet *index,int *res_mem)
+	{
+	if (sing_set_key(index,"key","oldvalue",9))
+		return 1;
+	return 0;
+	}
+
+const char *multi_keys[7] = {"key1","key22","key333","key444","key5555","key66666","key@"};
+const char *multi_keys_long[7] = {"key1long","key22long","key333long","key4444long","key55555long","key666666long","key@long"};
+char *multi_values[5] = {"some string 1","some string 22","some string 333","some string 4444","some string 55555"};
+
+element_type many_key_value_prep(FSingSet *index,int *res_mem)
+	{
+	int i;
+	for(i = 0; i < 5; i++)
+		if (sing_set_key(index,multi_keys[i],multi_values[i],strlen(multi_values[i]) + 1))
+			return 1;
+	return 0;
+	}
+
+void *deletion_thread(void *param)
+	{
+	FSingSet *index = sing_link_set((char *)param,0,NULL);
+	sing_delete_set(index);
+	return (void*) 0;
+	}
+
+void test_delete_set(char *index_name)
+	{
+	int *rv;
+	pthread_t del_thread;
+	pthread_create(&del_thread, NULL, deletion_thread, index_name);
+	pthread_join(del_thread,(void**)&rv);
+	}
 
 int run_test(FTestData *test_data)
 	{
@@ -43,53 +122,5 @@ test_error:
 		sing_delete_set(index);
 	if (config)
 		sing_delete_config(config);
-	return rv;
-	}
-
-void test_make_tdata(FSingSet *index,char *key_source,int vsize,unsigned char *value,FTransformData *tdata)
-	{
-	tdata->value_source = value;
-	tdata->value_size = vsize;
-	tdata->head.fields.chain_stop = 1;
-	tdata->head.fields.diff_mark = 0;
-	cd_transform(key_source,MAX_KEY_SOURCE,tdata);
-	tdata->hash = index->hashtable_size;
-	cd_encode(tdata);
-	}
-
-void test_process_res(FSingSet *index,int res,FTransformData *tdata)
-	{
-	if (res & KS_CHANGED)
-		{
-		if (tdata->old_key_rest_size)
-			{
-			lck_waitForReaders(index->lock_set);
-			idx_general_free(index,tdata->old_key_rest,tdata->old_key_rest_size);
-			}
-		lck_memoryUnlock(index);
-		}
-	}
-
-int test_add_key(FSingSet *index,char *key_source,int vsize,unsigned char *value)
-	{
-	FTransformData tdata;
-
-	test_make_tdata(index,key_source,vsize,value,&tdata);
-	int rv = idx_key_try_set(index,&tdata);
-	if (!rv)
-		rv = idx_key_set(index,&tdata);
-	test_process_res(index,rv,&tdata);
-	return rv;
-	}
-
-int test_del_key(FSingSet *index,char *key_source)
-	{
-	FTransformData tdata;
-
-	test_make_tdata(index,key_source,0,NULL,&tdata);
-
-	int rv = idx_key_del(index,&tdata);
-	if (rv & KS_CHANGED)
-		lck_memoryUnlock(index);
 	return rv;
 	}
