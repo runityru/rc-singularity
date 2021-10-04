@@ -348,15 +348,14 @@ SING_ERROR_CONNECTION_LOST - набор удален
 
 ### sing_intersect_file, sing_intersect_replace_file
 ```с
-int sing_intersect_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile)
-int sing_intersect_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile)
+int sing_intersect_file(FSingSet *kvset,const FSingCSVFile *csv_file)
+int sing_intersect_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file)
 ```
 sing_intersect_file выводит ключи, имеющиеся и в наборе и в файле (без знаков операции). Значения берутся из данных набора.  
 sing_intersect_replace_file выводит ключи, имеющиеся и в наборе и в файле (без знаков операции) и удаляет из набора ключи, который нет в файле. Значения берутся из данных файла.  
 **Параметры:**  
 **_kvset_** - подключенный набор данных.  
 **_csv_file_** - имя и формат csv файла.  
-**_outfile_** - файл для сохранения результата сравнения (если NULL - будет выведен в STDOUT)  
 **Возвращаемые значения:**  
 0 - успех  
 SING_ERROR_NO_MEMORY - не удалось выделить память для служебных структур.  
@@ -748,14 +747,15 @@ typedef int(* CSingIterateCallback)(const char *key,const void *value,unsigned *
 **_param_** - пользовательский параметр, передаваемый в коллбек  
 **Возвращаемое значение:**  
 0 - вызов успешен  
-\> 0 - вызов успешен, нужно заменить значение на данные new_value  
+\> 0 - вызов успешен, нужно заменить значение на данные new_value (вызывает ошибку для read-only наборов) 
 \< 0 - ошибка, нужно закончить перебор ключей  
 
 ### sing_iterate
 ```c
 int sing_iterate(FSingSet *kvset,CSingIterateCallback cb,void *param)
 ```
-вызывает функцию cb для каждого ключа в наборе.  
+вызывает функцию cb для каждого ключа в наборе. Хотя это пишущий вызов, работающий под соответствующими блокировками, но его использование 
+для read-only наборов не вызывает ошибки если cb не меняет значения у ключей.
 **Параметры:**  
 **_kvset_** - подключенный набор данных.  
 **_cb_** - указатель на коллбек-функцию для обработки ключей  

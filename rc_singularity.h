@@ -97,8 +97,8 @@ int sing_add_file(FSingSet *kvset,const FSingCSVFile *csv_file);
 int sing_sub_file(FSingSet *kvset,const FSingCSVFile *csv_file);
 int sing_diff_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile);
 int sing_diff_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile);
-int sing_intersect_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile);
-int sing_intersect_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile);
+int sing_intersect_file(FSingSet *kvset,const FSingCSVFile *csv_file);
+int sing_intersect_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file);
 int sing_dump(FSingSet *kvset,char *outfile,unsigned flags);
 
 typedef void *(CSingValueAllocator)(unsigned size);
@@ -183,7 +183,7 @@ static inline int sing_set_pointer(FSingSet *kvset,const char *key,void *value)
 
 int sing_del_key(FSingSet *kvset,const char *key);
 
-typedef int (*CSingIterateCallback)(const char *key,const void *value,unsigned vsize,void *new_value,void *param);
+typedef int (*CSingIterateCallback)(const char *key,const void *value,unsigned *vsize,void *new_value,void *param);
 int sing_iterate(FSingSet *kvset,CSingIterateCallback cb,void *param);
 
 

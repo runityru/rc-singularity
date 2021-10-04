@@ -177,9 +177,10 @@ void idx_print_chain_distrib(FSingSet *index);
 #define KS_ADDED		 0x01
 #define KS_DELETED 	 0x02
 #define KS_CHANGED 	 0x03
-#define KS_SUCCESS    0x04
+#define KS_PRESENT    0x04
 #define KS_MARKED     0x08
-#define KS_PRESENT    0x10
+#define KS_SUCCESS    0x10
+#define KS_DIFFER     0x20
 #define KS_ERROR      0x80000000
 
 #define ERROR_CONNECTION_LOST (0x0100 | KS_ERROR)
@@ -191,6 +192,7 @@ void idx_print_chain_distrib(FSingSet *index);
 #define ERROR_OUTPUT_NOT_FOUND (0x0700 | KS_ERROR)
 #define ERROR_IMPOSSIBLE_OPERATION (0x0800 | KS_ERROR)
 #define ERROR_SYNC_FAILED (0x0900 | KS_ERROR)
+#define ERROR_BREAK (0x0A00 | KS_ERROR)
 
 #define RESULT_KEY_NOT_FOUND 0x0A00
 #define RESULT_IMPOSSIBLE_KEY 0x0B00
@@ -198,13 +200,17 @@ void idx_print_chain_distrib(FSingSet *index);
 #define RESULT_VALUE_DIFFER 0x0D00
 #define RESULT_KEY_PRESENT 0x0E00
 
-int idx_key_try_set(FSingSet *index,FTransformData *tdata) __attribute__((regparm(2)));
-int idx_key_set(FSingSet *index,FTransformData *tdata) __attribute__((regparm(2)));
+int idx_key_try_lookup(FSingSet *index,FTransformData *tdata);
+int idx_key_lookup(FSingSet *index,FTransformData *tdata);
+static inline int idx_key_lookup_switch(FSingSet *index,FTransformData *tdata)
+	{ return tdata->chain_idx_ref ? idx_key_lookup(index,tdata) : idx_key_try_lookup(index,tdata); }
 
-static inline int idx_key_set_switch(FSingSet *index,FTransformData *tdata)
-	{ return tdata->chain_idx_ref ? idx_key_set(index,tdata) : idx_key_try_set(index,tdata); }
+int idx_key_try_set(FSingSet *index,FTransformData *tdata,uint32_t allowed);
+int idx_key_set(FSingSet *index,FTransformData *tdata,uint32_t allowed);
+static inline int idx_key_set_switch(FSingSet *index,FTransformData *tdata,uint32_t allowed)
+	{ return tdata->chain_idx_ref ? idx_key_set(index,tdata,allowed) : idx_key_try_set(index,tdata,allowed); }
 
-int idx_key_del(FSingSet *index,FTransformData *tdata) __attribute__((regparm(2)));
+int idx_key_del(FSingSet *index,FTransformData *tdata);
 
 static inline void lck_chainLock(FSingSet *index,unsigned hash)
 	{ if (index->head->use_spin) _lck_chainLock(index,hash); }
@@ -231,7 +237,7 @@ static inline void idx_op_finalize(FSingSet *index,FTransformData *tdata,int res
 		{
 		if (tdata->old_key_rest_size)
 			{
-			lck_waitForReaders(index->lock_set);
+			lck_waitForReaders(index->lock_set,LCK_NO_DELETION);
 			idx_general_free(index,tdata->old_key_rest,tdata->old_key_rest_size);
 			}
 		lck_memoryUnlock(index);
@@ -240,9 +246,12 @@ static inline void idx_op_finalize(FSingSet *index,FTransformData *tdata,int res
 
 typedef struct FWriteBufferSetTg FWriteBufferSet;
 
-void idx_del_unmarked(FSingSet *index,unsigned *counters,FWriteBufferSet *wbs);
+void idx_process_unmarked(FSingSet *index,unsigned *counters,FWriteBufferSet *wbs,int del);
 
 void idx_dump_all(FSingSet *index,FWriteBufferSet *wbs);
+
+typedef int (*CSingIterateCallback)(const char *key,const void *value,unsigned *vsize,void *new_value,void *param);
+int idx_iterate_all(FSingSet *index,CSingIterateCallback cb,void *param);
 
 typedef struct FCheckDataTg
 	{

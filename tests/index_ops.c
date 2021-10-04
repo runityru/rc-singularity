@@ -33,21 +33,21 @@ void test_process_res(FSingSet *index,int res,FTransformData *tdata)
 		{
 		if (tdata->old_key_rest_size)
 			{
-			lck_waitForReaders(index->lock_set);
+			lck_waitForReaders(index->lock_set,LCK_NO_DELETION);
 			idx_general_free(index,tdata->old_key_rest,tdata->old_key_rest_size);
 			}
 		lck_memoryUnlock(index);
 		}
 	}
 
-int test_add_key(FSingSet *index,char *key_source,int vsize,unsigned char *value)
+int test_set_key(FSingSet *index,char *key_source,int vsize,unsigned char *value)
 	{
 	FTransformData tdata;
 
 	test_make_tdata(index,key_source,vsize,value,&tdata);
-	int rv = idx_key_try_set(index,&tdata);
+	int rv = idx_key_try_set(index,&tdata,KS_ADDED | KS_DELETED);
 	if (!rv)
-		rv = idx_key_set(index,&tdata);
+		rv = idx_key_set(index,&tdata,KS_ADDED | KS_DELETED);
 	test_process_res(index,rv,&tdata);
 	return rv;
 	}
@@ -74,27 +74,27 @@ int test_del_key(FSingSet *index,char *key_source)
 
 int alloc_rest_test_1_1_1(FSingSet *index,int *res_mem,element_type prep_data)
 	{
-	int rv = test_add_key(index,"a",0,NULL);
+	int rv = test_set_key(index,"a",0,NULL);
 	return (rv & KS_ADDED)?0:1;
 	}
 
 int alloc_rest_test_1_1_2(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	uint32_t val = 0;
-	int rv = test_add_key(index,"a",4,(unsigned char*)&val);
+	int rv = test_set_key(index,"a",4,(unsigned char*)&val);
 	return (rv & KS_ADDED)?0:1;
 	}
 
 int alloc_rest_test_1_2_1(FSingSet *index,int *res_mem,element_type prep_data)
 	{
-	int rv = test_add_key(index,"abcde",0,NULL);
+	int rv = test_set_key(index,"abcde",0,NULL);
 	return (rv & KS_ADDED)?0:1;
 	}
 
 int alloc_rest_test_1_2_2(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	uint32_t val = 0;
-	int rv = test_add_key(index,"abcde",4,(unsigned char*)&val);
+	int rv = test_set_key(index,"abcde",4,(unsigned char*)&val);
 	return (rv & KS_ADDED)?0:1;
 	}
 
@@ -109,43 +109,43 @@ int alloc_rest_test_1_2_2(FSingSet *index,int *res_mem,element_type prep_data)
 
 element_type replace_value_prep_2_1(FSingSet *index,int *res_mem)
 	{
-	test_add_key(index,"abcde",0,NULL);
+	test_set_key(index,"abcde",0,NULL);
 	return 0;
 	}
 
 int replace_value_test_2_1_1(FSingSet *index,int *res_mem,element_type prep_data)
 	{
-	return (test_add_key(index,"abcde",0,NULL) & KS_CHANGED)?1:0;
+	return (test_set_key(index,"abcde",0,NULL) & KS_CHANGED)?1:0;
 	}
 
 int replace_value_test_2_1_2(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	uint32_t val = 0;
-	return (test_add_key(index,"abcde",4,(unsigned char*)&val) & KS_CHANGED)?0:1;
+	return (test_set_key(index,"abcde",4,(unsigned char*)&val) & KS_CHANGED)?0:1;
 	}
 
 element_type replace_value_prep_2_2(FSingSet *index,int *res_mem)
 	{
 	uint32_t val = 0;
-	test_add_key(index,"abcde",4,(unsigned char*)&val);
+	test_set_key(index,"abcde",4,(unsigned char*)&val);
 	return 0;
 	}
 
 int replace_value_test_2_2_1(FSingSet *index,int *res_mem,element_type prep_data)
 	{
-	return (test_add_key(index,"abcde",0,NULL) & KS_CHANGED)?0:1;
+	return (test_set_key(index,"abcde",0,NULL) & KS_CHANGED)?0:1;
 	}
 
 int replace_value_test_2_2_2(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	uint32_t val = 1;
-	return (test_add_key(index,"abcde",4,(unsigned char*)&val) & KS_CHANGED)?0:1;
+	return (test_set_key(index,"abcde",4,(unsigned char*)&val) & KS_CHANGED)?0:1;
 	}
 
 int replace_value_test_2_2_3(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	uint32_t val = 0;
-	return (test_add_key(index,"abcde",4,(unsigned char*)&val) & KS_CHANGED)?1:0;
+	return (test_set_key(index,"abcde",4,(unsigned char*)&val) & KS_CHANGED)?1:0;
 	}
 
 //(3) Попытка добавления ключа в хештаблицу
@@ -160,15 +160,15 @@ int test_try_add_key(FSingSet *index,char *key_source,int vsize,unsigned char *v
 
 	test_make_tdata(index,key_source,vsize,value,&tdata);
 
-	int rv = idx_key_try_set(index,&tdata);
+	int rv = idx_key_try_set(index,&tdata,KS_ADDED | KS_DELETED);
 	test_process_res(index,rv,&tdata);
 	return rv;
 	}
 
 element_type key_try_set_prep_3_1(FSingSet *index,int *res_mem)
 	{
-	test_add_key(index,collisions[0],0,NULL);
-	test_add_key(index,collisions[1],0,NULL);
+	test_set_key(index,collisions[0],0,NULL);
+	test_set_key(index,collisions[1],0,NULL);
 	return 0;
 	}
 
@@ -182,7 +182,7 @@ element_type key_try_set_prep_3_2(FSingSet *index,int *res_mem)
 	{
 	unsigned i;
 	for (i = 0; i < 8; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 8;
 	}
 
@@ -196,7 +196,7 @@ element_type key_try_set_prep_3_3(FSingSet *index,int *res_mem)
 	{
 	unsigned i;
 	for (i = 0; i < 6; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 6;
 	}
 
@@ -209,7 +209,7 @@ int key_try_set_test_3_3(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	unsigned i;
 	for (i = 0; i < 7; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 7;
 	}
 
@@ -234,14 +234,14 @@ int key_try_set_test_3_4(FSingSet *index,int *res_mem,element_type prep_data)
 
 int key_set_test_4_1(FSingSet *index,int *res_mem,element_type prep_data)
 	{
-	return (test_add_key(index,collisions[prep_data],0,NULL) & KS_ADDED) ? 1 : 0;
+	return (test_set_key(index,collisions[prep_data],0,NULL) & KS_ADDED) ? 1 : 0;
 	}
 
  element_type key_set_prep_4_1_1(FSingSet *index,int *res_mem)
 	{
 	unsigned i;
 	for (i = 0; i < 9; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 7;
 	}
 
@@ -249,7 +249,7 @@ int key_set_test_4_1(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	unsigned i;
 	for (i = 0; i < 9; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 8;
 	}
 
@@ -257,7 +257,7 @@ int key_set_test_4_1(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	unsigned i;
 	for (i = 0; i < 15; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 14;
 	}
 
@@ -265,20 +265,20 @@ int key_set_test_4_1(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	unsigned i;
 	for (i = 0; i < 16; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 15;
 	}
 
 int key_set_test_4_2(FSingSet *index,int *res_mem,element_type prep_data)
 	{
-	return (test_add_key(index,collisions[prep_data],0,NULL) & KS_ADDED) ? 0 : 1;
+	return (test_set_key(index,collisions[prep_data],0,NULL) & KS_ADDED) ? 0 : 1;
 	}
 
 element_type key_set_prep_4_2_1(FSingSet *index,int *res_mem)
 	{
 	unsigned i;
 	for (i = 0; i < 15; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 15;
 	}
 
@@ -287,11 +287,11 @@ element_type key_set_prep_4_2_2_1(FSingSet *index,int *res_mem)
 	unsigned i;
 	for (i = 0; i < 4; i++)
 		{
-		test_add_key(index,collisions[i],0,NULL);
-		test_add_key(index,collisions2[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions2[i],0,NULL);
 		}
 	for (i = 4; i < 11; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	test_del_key(index,collisions2[3]);
 	return 11;
 	}
@@ -301,11 +301,11 @@ element_type key_set_prep_4_2_2_2(FSingSet *index,int *res_mem)
 	unsigned i;
 	for (i = 0; i < 3; i++)
 		{
-		test_add_key(index,collisions[i],0,NULL);
-		test_add_key(index,collisions2[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions2[i],0,NULL);
 		}
 	for (i = 3; i < 6; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 6;
 	}
 
@@ -314,12 +314,12 @@ element_type key_set_prep_4_2_2_3(FSingSet *index,int *res_mem)
 	unsigned i;
 	for (i = 0; i < 4; i++)
 		{
-		test_add_key(index,collisions[i],0,NULL);
-		test_add_key(index,collisions2[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions2[i],0,NULL);
 		}
-	test_add_key(index,collisions2[4],0,NULL);
+	test_set_key(index,collisions2[4],0,NULL);
 	for (i = 4; i < 9; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 9;
 	}
 
@@ -328,12 +328,12 @@ element_type key_set_prep_4_2_2_4(FSingSet *index,int *res_mem)
 	unsigned i;
 	for (i = 0; i < 4; i++)
 		{
-		test_add_key(index,collisions[i],0,NULL);
-		test_add_key(index,collisions2[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions2[i],0,NULL);
 		}
-	test_add_key(index,collisions2[4],0,NULL);
+	test_set_key(index,collisions2[4],0,NULL);
 	for (i = 4; i < 10; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 10;
 	}
 
@@ -352,14 +352,14 @@ int del_key_rest_test_5_1(FSingSet *index,int *res_mem,element_type prep_data)
 
 element_type del_key_rest_prep_5_1_1(FSingSet *index,int *res_mem)
 	{
-	test_add_key(index,"a",0,NULL);
+	test_set_key(index,"a",0,NULL);
 	return 0;
 	}
 
 element_type del_key_rest_prep_5_1_2(FSingSet *index,int *res_mem)
 	{
 	uint32_t val = 0;
-	test_add_key(index,"a",4,(unsigned char*)&val);
+	test_set_key(index,"a",4,(unsigned char*)&val);
 	return 0;
 	}
 
@@ -370,14 +370,14 @@ int del_key_rest_test_5_2(FSingSet *index,int *res_mem,element_type prep_data)
 
 element_type del_key_rest_prep_5_2_1(FSingSet *index,int *res_mem)
 	{
-	test_add_key(index,"abcde",0,NULL);
+	test_set_key(index,"abcde",0,NULL);
 	return 0;
 	}
 
 element_type del_key_rest_prep_5_2_2(FSingSet *index,int *res_mem)
 	{
 	uint32_t val = 0;
-	test_add_key(index,"abcde",4,(unsigned char*)&val);
+	test_set_key(index,"abcde",4,(unsigned char*)&val);
 	return 0;
 	}
 
@@ -408,15 +408,15 @@ int del_key_test(FSingSet *index,int *res_mem,element_type prep_data)
 
 element_type del_key_prep_6_1_1(FSingSet *index,int *res_mem)
 	{
-	test_add_key(index,collisions[0],0,NULL);
-	test_add_key(index,collisions[1],0,NULL);
+	test_set_key(index,collisions[0],0,NULL);
+	test_set_key(index,collisions[1],0,NULL);
 	return 0;
 	}
 
 element_type del_key_prep_6_1_2(FSingSet *index,int *res_mem)
 	{
-	test_add_key(index,collisions[0],0,NULL);
-	test_add_key(index,collisions[1],0,NULL);
+	test_set_key(index,collisions[0],0,NULL);
+	test_set_key(index,collisions[1],0,NULL);
 	return 1;
 	}
 
@@ -424,7 +424,7 @@ element_type del_key_prep_6_2_1(FSingSet *index,int *res_mem)
 	{
 	unsigned i;
 	for (i = 0; i < 8; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 1;
 	}
 
@@ -432,7 +432,7 @@ element_type del_key_prep_6_2_2(FSingSet *index,int *res_mem)
 	{
 	unsigned i;
 	for (i = 0; i < 9; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 1;
 	}
 
@@ -440,7 +440,7 @@ element_type del_key_prep_6_2_3(FSingSet *index,int *res_mem)
 	{
 	unsigned i;
 	for (i = 0; i < 16; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 1;
 	}
 
@@ -448,7 +448,7 @@ element_type del_key_prep_6_3_1(FSingSet *index,int *res_mem)
 	{
 	unsigned i;
 	for (i = 0; i < 8; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 7;
 	}
 
@@ -456,7 +456,7 @@ element_type del_key_prep_6_3_2(FSingSet *index,int *res_mem)
 	{
 	unsigned i;
 	for (i = 0; i < 9; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 7;
 	}
 
@@ -464,7 +464,7 @@ element_type del_key_prep_6_4_1(FSingSet *index,int *res_mem)
 	{
 	unsigned i;
 	for (i = 0; i < 9; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 8;
 	}
 
@@ -472,7 +472,7 @@ element_type del_key_prep_6_4_2(FSingSet *index,int *res_mem)
 	{
 	unsigned i;
 	for (i = 0; i < 10; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 8;
 	}
 
@@ -480,7 +480,7 @@ element_type del_key_prep_6_4_3(FSingSet *index,int *res_mem)
 	{
 	unsigned i;
 	for (i = 0; i < 15; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 8;
 	}
 
@@ -488,7 +488,7 @@ element_type del_key_prep_6_4_4(FSingSet *index,int *res_mem)
 	{
 	unsigned i;
 	for (i = 0; i < 16; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 8;
 	}
 
@@ -496,7 +496,7 @@ element_type del_key_prep_6_4_5(FSingSet *index,int *res_mem)
 	{
 	unsigned i;
 	for (i = 0; i < 17; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 8;
 	}
 
@@ -504,7 +504,7 @@ element_type del_key_prep_6_5(FSingSet *index,int *res_mem)
 	{
 	unsigned i;
 	for (i = 0; i < 17; i++)
-		test_add_key(index,collisions[i],0,NULL);
+		test_set_key(index,collisions[i],0,NULL);
 	return 15;
 	}
 

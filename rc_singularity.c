@@ -23,13 +23,13 @@ int std_process(FSingSet *index,FTransformData *tdata, void *cb_param)
 	{
 	if (tdata->operation & OP_DEL_MASK)
 		return idx_key_del(index,tdata);
-	return idx_key_set_switch(index,tdata);
+	return idx_key_set_switch(index,tdata,KS_ADDED | KS_DELETED);
 	}
 
 int phantom_process(FSingSet *index,FTransformData *tdata, void *cb_param)
 	{
 	if (!(tdata->operation < OP_DEL_MASK))
-		return idx_key_set_switch(index,tdata);
+		return idx_key_set_switch(index,tdata,KS_ADDED | KS_DELETED);
 
 	tdata->head.fields.diff_mark = 1;
 	if (tdata->head.fields.has_value)
@@ -39,14 +39,14 @@ int phantom_process(FSingSet *index,FTransformData *tdata, void *cb_param)
 		if (tdata->head.fields.size == 1)
 			tdata->head.fields.extra = tdata->key_rest[0];
 		}
-	int rv = idx_key_set_switch(index,tdata);
+	int rv = idx_key_set_switch(index,tdata,KS_ADDED | KS_DELETED);
 	tdata->head.fields.diff_mark = 0;
 	return rv;
 	}
 
 // Коллбеки вывода результатов
 
-static inline void resultOutput(const FKeyHead *head,const element_type *key_rest,const void *value, unsigned vsize,FWriteBufferSet *resultWbs)
+static inline void result_output_wval(const FKeyHead *head,const element_type *key_rest,const void *value, unsigned vsize,FWriteBufferSet *resultWbs)
 	{
 	char *name = fbw_get_ref(resultWbs);
 	unsigned size = cd_decode(&name[0],head,key_rest);
@@ -60,53 +60,84 @@ static inline void resultOutput(const FKeyHead *head,const element_type *key_res
 	fbw_shift_pos(resultWbs,size);
 	}
 
-typedef struct FIterateCbParamsTg
-	{
-	CSingIterateCallback user_cb;
-	void *param;
-	} FIterateCbParams;
-
-int user_callback(const FKeyHead *head,const element_type *key_rest,const void *value, unsigned vsize,void *param)
-	{
-	FIterateCbParams *params = (FIterateCbParams *)param;
-	char keybuf[MAX_KEY_SOURCE + 1];
-	unsigned size = cd_decode(keybuf,head,key_rest);
-	keybuf[size] = 0;
-	(*(params->user_cb))(keybuf,value,vsize,NULL,param);
-	return 0;
-	}
-	
 // Коллбеки дифа
 
-typedef struct FDiffCBParamTg
+typedef struct FSMWParamTg
 	{
 	unsigned *new_counters;
 	FWriteBufferSet *resultWbs;
-	} FDiffCBParam;
+	} FSMWParam;
 
-int parse_process_diff_replace(FSingSet *index,FTransformData *tdata, void *cb_param) __attribute__((regparm(3)));
+int parse_process_diff(FSingSet *index,FTransformData *tdata, void *cb_param) 
+	{
+	if (tdata->operation != OP_ADD) 
+		return 0;
+	int res = idx_key_lookup_switch(index,tdata);
+
+	FSMWParam *smw_param = (FSMWParam *)cb_param;
+	if (res & KS_DIFFER)
+		{
+		fbw_add_sym(smw_param->resultWbs,'!');
+		result_output_wval(&(tdata->head.fields),tdata->key_rest,tdata->old_value,tdata->old_value_size,smw_param->resultWbs);
+		fbw_commit(smw_param->resultWbs);
+		}
+	if (res & KS_SUCCESS)
+		{
+		fbw_add_sym(smw_param->resultWbs,(res & KS_DIFFER) ? '=':'+');
+		result_output_wval(&(tdata->head.fields),tdata->key_rest,tdata->value_source,tdata->value_size,smw_param->resultWbs);
+		fbw_commit(smw_param->resultWbs);
+		}
+	if (smw_param->new_counters && (res & KS_MARKED))
+		smw_param->new_counters[HASH_TO_COUNTER(tdata->hash)] ++;
+	return res;
+	}
 
 int parse_process_diff_replace(FSingSet *index,FTransformData *tdata, void *cb_param) 
 	{
 	if (tdata->operation != OP_ADD) 
 		return 0;
-	int res = idx_key_set_switch(index,tdata);
+	int res = idx_key_set_switch(index,tdata,KS_ADDED | KS_DELETED);
 
-	FDiffCBParam *diff_param = (FDiffCBParam *)cb_param;
+	FSMWParam *smw_param = (FSMWParam *)cb_param;
 	if (res & KS_DELETED)
 		{
-		fbw_add_sym(diff_param->resultWbs,(res & KS_ADDED) ? '!':'-');
-		resultOutput(&(tdata->head.fields),tdata->key_rest,tdata->old_value,tdata->old_value_size,diff_param->resultWbs);
+		fbw_add_sym(smw_param->resultWbs,'!');
+		result_output_wval(&(tdata->head.fields),tdata->key_rest,tdata->old_value,tdata->old_value_size,smw_param->resultWbs);
+		fbw_commit(smw_param->resultWbs);
 		}
 	if (res & KS_ADDED)
 		{
-		fbw_add_sym(diff_param->resultWbs,(res & KS_DELETED) ? '=':'+');
-		resultOutput(&(tdata->head.fields),tdata->key_rest,tdata->value_source,tdata->value_size,diff_param->resultWbs);
+		fbw_add_sym(smw_param->resultWbs,(res & KS_DELETED) ? '=':'+');
+		result_output_wval(&(tdata->head.fields),tdata->key_rest,tdata->value_source,tdata->value_size,smw_param->resultWbs);
+		fbw_commit(smw_param->resultWbs);
 		}
-
-	if (diff_param->new_counters && (res & KS_MARKED))
-		diff_param->new_counters[HASH_TO_COUNTER(tdata->hash)] ++;
+	if (smw_param->new_counters && (res & KS_MARKED))
+		smw_param->new_counters[HASH_TO_COUNTER(tdata->hash)] ++;
 	return res;
+	}
+
+int parse_process_intersect(FSingSet *index,FTransformData *tdata, void *cb_param) 
+	{
+	if (tdata->operation != OP_ADD) 
+		return 0;
+	int res = idx_key_lookup_switch(index,tdata);
+
+	FSMWParam *smw_param = (FSMWParam *)cb_param;
+	if (smw_param->new_counters && (res & KS_MARKED))
+		smw_param->new_counters[HASH_TO_COUNTER(tdata->hash)] ++;
+	return res; 
+	}
+
+int parse_process_intersect_replace(FSingSet *index,FTransformData *tdata, void *cb_param) 
+	{
+	if (tdata->operation != OP_ADD) 
+		return 0;
+	int res = idx_key_set_switch(index,tdata,KS_DELETED);
+
+	FSMWParam *smw_param = (FSMWParam *)cb_param;
+	if (smw_param->new_counters && (res & KS_MARKED))
+		smw_param->new_counters[HASH_TO_COUNTER(tdata->hash)] ++;
+	return res; 
 	}
 
 // Функции работы с файлами
@@ -253,32 +284,34 @@ int sing_sub_file(FSingSet *kvset,const FSingCSVFile *csv_file)
 	return rv;
 	}
 
-int sing_diff_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile)
-	{
-	return ERROR_IMPOSSIBLE_OPERATION;
-	}
+#define SMW_DIFF 0
+#define SMW_DIFF_REPLACE 1
+#define SMW_INTERSECT 2
+#define SMW_INTERSECT_REPLACE 3
 
-int sing_diff_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile)
+static const processParsedItem op_cbs[4] = {parse_process_diff,parse_process_diff_replace,parse_process_intersect,parse_process_intersect_replace};
+
+static int _sing_marks_work(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile,int op)
 	{
 	FReadBufferSet *rbs = NULL;
 	FWriteBufferSet *wbs = NULL;
-	FDiffCBParam diff_param = {NULL,NULL};
+	FSMWParam smw_param = {NULL,NULL};
 	int rv = 0;
 
 	if (kvset->head->use_flags & UF_PHANTOM_KEYS)
-		return idx_set_error(kvset,"Share with phantom keys can not be diffed"), ERROR_IMPOSSIBLE_OPERATION;
+		return idx_set_error(kvset,"Share with phantom keys can not be diffed or intersected"), ERROR_IMPOSSIBLE_OPERATION;
 	if (file_size(csv_file->filename) == -1 || !(rbs = fbr_create(csv_file->filename)))
 		return idx_set_formatted_error(kvset,"Source file %s not found",csv_file->filename), ERROR_FILE_NOT_FOUND; 
 
-	if (!(wbs = fbw_create(outfile)))
+	if ((op <= SMW_DIFF_REPLACE || outfile) && !(wbs = fbw_create(outfile)))
 		{ 
 		idx_set_formatted_error(kvset,"Failed to open %s for writing",outfile); 
 		rv = ERROR_OUTPUT_NOT_FOUND;
 		goto diff_exit; 
 		}
 
-	diff_param.resultWbs = wbs;
-	if (kvset->counters && !(diff_param.new_counters = (unsigned *)calloc(COUNTERS_SIZE(kvset->hashtable_size),sizeof(unsigned))))
+	smw_param.resultWbs = wbs;
+	if (kvset->counters && !(smw_param.new_counters = (unsigned *)calloc(COUNTERS_SIZE(kvset->hashtable_size),sizeof(unsigned))))
 		{ 
 		idx_set_error(kvset,"Failed to allocate memory for counters");
 		rv = ERROR_NO_MEMORY;
@@ -292,19 +325,44 @@ int sing_diff_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file,const ch
 	if (!rv)
 		{
 		kvset->head->state_flags ^= SF_DIFF_MARK;
-		rv = (*fpc)(kvset,csv_file,rbs,parse_process_diff_replace,ecb,0,&diff_param);
+		rv = (*fpc)(kvset,csv_file,rbs,op_cbs[op],ecb,0,&smw_param);
 		if (!rv)
-			idx_del_unmarked(kvset,diff_param.new_counters,wbs);
+			switch(op)
+				{
+				case SMW_DIFF: idx_process_unmarked(kvset,smw_param.new_counters,wbs,0); break;
+				case SMW_DIFF_REPLACE: idx_process_unmarked(kvset,smw_param.new_counters,wbs,1); break;
+				case SMW_INTERSECT: case SMW_INTERSECT_REPLACE: idx_process_unmarked(kvset,smw_param.new_counters,NULL,1); break;
+				}
 		rv = lck_processUnlock(kvset,rv,1);
 		}
 diff_exit:
-	if (diff_param.new_counters)
-		free(diff_param.new_counters);
+	if (smw_param.new_counters)
+		free(smw_param.new_counters);
 	if (wbs)
 		fbw_finish(wbs);
 	if (rbs)
 		fbr_finish(rbs);
 	return rv;
+	}
+
+int sing_diff_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile)
+	{
+	return _sing_marks_work(kvset,csv_file,outfile,SMW_DIFF);
+	}
+
+int sing_diff_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile)
+	{
+	return _sing_marks_work(kvset,csv_file,outfile,SMW_DIFF_REPLACE);
+	}
+
+int sing_intersect_file(FSingSet *kvset,const FSingCSVFile *csv_file)
+	{
+	return _sing_marks_work(kvset,csv_file,NULL,SMW_INTERSECT);
+	}
+
+int sing_intersect_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file)
+	{
+	return _sing_marks_work(kvset,csv_file,NULL,SMW_INTERSECT_REPLACE);
 	}
 
 int sing_dump(FSingSet *index,char *outfile,unsigned flags)
@@ -548,9 +606,9 @@ int sing_set_key(FSingSet *kvset,const char *key,void *value,unsigned vsize)
 	if (rv)
 		return rv;
 	lck_chainLock(kvset,tdata.hash);
-	rv = idx_key_try_set(kvset,&tdata);
+	rv = idx_key_try_set(kvset,&tdata,KS_ADDED | KS_DELETED);
 	if (!rv)
-		rv = idx_key_set(kvset,&tdata);
+		rv = idx_key_set(kvset,&tdata,KS_ADDED | KS_DELETED);
 	idx_op_finalize(kvset,&tdata,rv);
 	lck_chainUnlock(kvset,tdata.hash);
 	rv = lck_processUnlock(kvset,rv,0);
@@ -581,6 +639,12 @@ int sing_del_key(FSingSet *kvset,const char *key)
 
 int sing_iterate(FSingSet *kvset,CSingIterateCallback cb,void *param)
 	{
-	return ERROR_IMPOSSIBLE_OPERATION;
+	int rv = 0;
+	if (!kvset->head->read_only && (rv = lck_processLock(kvset)))
+		return rv;
+	rv = idx_iterate_all(kvset,cb,param);
+	if (!kvset->head->read_only)
+		rv = lck_processUnlock(kvset,rv,0);
+	return rv;
 	}
 

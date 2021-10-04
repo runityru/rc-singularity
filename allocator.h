@@ -13,7 +13,8 @@
 
 typedef struct FValueHeadTg
 	{
-	element_type size_e:(ELEMENT_SIZE * 8 - 3); // Размер в элементах
+	element_type size_e: VALUE_SIZE_WIDTH; // Размер в элементах
+	element_type padding: (ELEMENT_SIZE * 8 - VALUE_SIZE_WIDTH - 3);
 	element_type extra_bytes:3; 				// Число добавленных байт. (0-4)
 	} FValueHead;
 	
