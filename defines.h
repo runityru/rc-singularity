@@ -43,9 +43,6 @@ typedef unsigned element_type; // Adressed element
 	#define PAGE_SIZE 0x10000
 #endif
 
-// Max value size in elements (max value source size is calculated)
-#define MAX_VALUE_SIZE 16384
-
 // Сдвиг для получения номера страницы из индекса элемента
 #define PAGE_SHIFT (LOG_BIN_MACRO(PAGE_SIZE))
 // Размер страницы должен быть степенью двойки, иначе вместо сдвигов будет использоваться деление
@@ -80,6 +77,18 @@ typedef unsigned element_type; // Adressed element
 #endif
 
 #define DISK_PAGE_BYTES (PAGE_SIZE_BYTES / 64)
+
+// Max value size in elements (max value source size is calculated)
+#define MAX_VALUE_SIZE 16384
+
+#define VALUE_SIZE_WIDTH (LOG_BIN_MACRO(MAX_VALUE_SIZE))
+// Value size should be power of 2 for omitting value size check in reads
+#if (1 << VALUE_SIZE_WIDTH) != MAX_VALUE_SIZE
+	#error Bad value size
+#endif
+#if MAX_VALUE_SIZE > PAGE_SIZE
+	#error Value size is larger than page size 
+#endif
 
 // Счетчики числа ключей в блоках 
 // 1024 ключа в одном блоке

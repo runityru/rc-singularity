@@ -243,9 +243,10 @@ void _lck_chainUnlock(FSingSet *index,unsigned hash)
 		__atomic_fetch_sub(&index->locks_count,1,__ATOMIC_RELEASE);
 	}
 
-void lck_waitForReaders(FLockSet *locks)
+void lck_waitForReaders(FLockSet *locks,unsigned del_in_chain)
 	{
 	// Переключаем маску и увеличиваем seq_lock
+	locks->del_in_chain = del_in_chain;
 	unsigned seq_num = __atomic_add_fetch(&locks->rw_lock.parts.sequence,(unsigned)1,__ATOMIC_SEQ_CST);
 	unsigned rmask = 0xFFFF << (16 - (seq_num & 1) * 16);
 	unsigned result; 
@@ -318,3 +319,32 @@ int lck_readerUnlock(FLockSet *locks,FReaderLock *rlock)
 		}
 	return 1;
 	}
+
+int lck_readerUnlockCond(FLockSet *locks,FReaderLock *rlock,unsigned work_in_chain)
+	{
+	FRWLock lock,newstate;
+	
+	lock.fullValue = __atomic_load_n(&locks->rw_lock.fullValue,__ATOMIC_SEQ_CST);
+	if (!_check_reader_lock(lock,rlock))
+		return rlock->keeped = 0,0;
+	newstate = lock;
+	if (rlock->keep)
+		{
+		rlock->keeped = 1;
+		if (rlock->readerSeq == lock.parts.sequence || work_in_chain == __atomic_load_n(&locks->del_in_chain,__ATOMIC_RELAXED))
+			return 1;
+		newstate.parts.counters.counter[lock.parts.sequence & 1]++;
+		}
+	newstate.parts.counters.counter[rlock->readerSeq & 1]--;
+	while (!__atomic_compare_exchange_n(&locks->rw_lock.fullValue, &lock.fullValue, newstate.fullValue, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+		{
+		if (!_check_reader_lock(lock,rlock))
+			return rlock->keeped = 0,0;
+		newstate = lock;
+		if (rlock->keep)
+			newstate.parts.counters.counter[lock.parts.sequence & 1]++;
+		newstate.parts.counters.counter[rlock->readerSeq & 1]--;
+		}
+	return 1;
+	}
+

@@ -51,7 +51,9 @@ typedef struct FLockSetTg
 	{
 	FRWLock rw_lock __attribute__ ((aligned (8)));
 	unsigned memory_lock;
-	unsigned global_lock; 
+	unsigned marks_lock;
+	unsigned del_in_chain;
+	unsigned padding;
 	pthread_mutex_t process_lock __attribute__ ((aligned (8)));
 	uint64_t hash_locks[] __attribute__ ((aligned (8)));
 	} FLockSet;
@@ -89,8 +91,9 @@ static inline void _lck_memoryLock(FLockSet *locks)
 	FORMATTED_LOG_LOCKS("Memory spinlock setted\n");
 	}
 
+#define LCK_NO_DELETION 0xFFFFFFFF
 // Ожидает переключения читателей (увеличивает seq_lock и ожидает обнуления старой битмаски)
-void lck_waitForReaders(FLockSet *locks);
+void lck_waitForReaders(FLockSet *locks,unsigned del_in_chain);
 
 // Снятие блокировки работы с памятью (снимает memory_lock)
 static inline void _lck_memoryUnlock(FLockSet *locks)
@@ -100,18 +103,18 @@ static inline void _lck_memoryUnlock(FLockSet *locks)
 	FORMATTED_LOG_LOCKS("Memory spinlock removed\n");
 	}
 
-static inline void lck_globalLock(FLockSet *locks)
+static inline void lck_marksLock(FLockSet *locks)
 	{
-	while (__atomic_exchange_n(&locks->global_lock,(unsigned)1,__ATOMIC_ACQUIRE)) 
+	while (__atomic_exchange_n(&locks->marks_lock,(unsigned)1,__ATOMIC_ACQUIRE)) 
 		_mm_pause();  // Межпотоковый спинлок
 	}
 
-static inline void lck_globalUnlock(FLockSet *locks)
+static inline void lck_marksUnlock(FLockSet *locks)
 	{
-	__atomic_store_n(&locks->global_lock,0,__ATOMIC_RELEASE);
+	__atomic_store_n(&locks->marks_lock,0,__ATOMIC_RELEASE);
 	}
 
-// Ставит блокировку читателя (1 - все норм, 0 - сохраненная блокировка была снята)
+// Ставит блокировку читателя
 void lck_readerLock(FLockSet *locks,FReaderLock *rlock);
 
 // Проверяет валидность блокировки читателя (1 - все норм, 0 - была снята)
@@ -119,5 +122,7 @@ int lck_readerCheck(FLockSet *locks,FReaderLock *rlock);
 
 // Снимает блокировку читателя (1 - все норм, 0 - была снята)
 int lck_readerUnlock(FLockSet *locks,FReaderLock *rlock);
+
+int lck_readerUnlockCond(FLockSet *locks,FReaderLock *rlock,unsigned work_in_chain);
 
 #endif

@@ -85,7 +85,7 @@ FWriteBufferSet *fbw_create(const char *filename);
 void fbw_finish(FWriteBufferSet *set);
 static inline char *fbw_get_ref(FWriteBufferSet *set) 
 	{ return &set->mbuf->data[set->mbuf->filled_size]; }
-static inline void fbw_shift_pos(FWriteBufferSet *set,unsigned size) 
+static inline void fbw_shift_pos(FWriteBufferSet *set,int size) 
 	{ set->mbuf->filled_size += size; }
 static inline void fbw_add_sym(FWriteBufferSet *set,char sym)
 	{ set->mbuf->data[set->mbuf->filled_size++] = sym; }
