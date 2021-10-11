@@ -1148,9 +1148,9 @@ int idx_key_set(FSingSet *index,FTransformData *tdata,uint32_t allowed)
 		chain_block_ref = &hblock[KH_BLOCK_LAST].links.next;
 		FAILURE_CHECK(*chain_block_ref == KH_ZERO_REF,"open chain");
 		}
+idx_key_set_not_found: // Ничего не нашли, цепочка короче восьми заголовков, будем добавлять
 	if (!(allowed & KS_ADDED))
 		return KS_SUCCESS;
-idx_key_set_not_found: // Ничего не нашли, цепочка короче восьми заголовков, будем добавлять
 	lck_memoryLock(index); 
 	if (!_alloc_and_set_rest(index,tdata))
 		return lck_memoryUnlock(index),ERROR_NO_SET_MEMORY;

@@ -216,7 +216,10 @@ int cp_revert(FSingSet *index)
 					unsigned stt = __builtin_ffsll(mask) - 1;
 					mask >>= stt;
 					unsigned len = __builtin_ffsll(~mask);
-					if (!len) len = 64;
+					if (!len) 
+						len = 64 - pos;
+					else
+						len--;
 					mask >>= len;
 					stt += pos;
 					lseek(index->disk_pages_fd, (off_t)workpg * PAGE_SIZE_BYTES + stt * DISK_PAGE_BYTES, SEEK_SET);

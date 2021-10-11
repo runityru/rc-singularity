@@ -260,7 +260,7 @@ void *process_thread(void *arg)
 	return (void *)0;
 	}
 
-int _process_string(FSingSet *index,const FSingCSVFile *csv_format,FReadBufData *bufdata,FTransformData *tdata,parsedError ecb,int invert_operation)
+int _process_string(FSingSet *index,const FSingCSVFile *csv_format,FReadBufData *bufdata,FTransformData *tdata,int invert_operation)
 	{
 	int oldpos,ppos,keyfound = 0,column = 0;
 	char share_delimiter = index->head->delimiter;
@@ -282,12 +282,8 @@ int _process_string(FSingSet *index,const FSingCSVFile *csv_format,FReadBufData 
 				return keyfound;
 			continue;
 			}
-		if (bufdata->size - bufdata->pos < KEY_BUFFER_SIZE 
-					&& !(bufdata->buf = fbr_next_block_partial(bufdata->rbs,&bufdata->size,&bufdata->pos)))
-			{
-			if (ecb) (*ecb)(&bufdata->buf[bufdata->pos]);
-			return scanto_eol(bufdata),0;
-			}
+		if (bufdata->size - bufdata->pos < KEY_BUFFER_SIZE) 
+			bufdata->buf = fbr_next_block_partial(bufdata->rbs,&bufdata->size,&bufdata->pos);
 
 		oldpos = bufdata->pos;
 		bufdata->pos += cd_opscan(&bufdata->buf[bufdata->pos],tdata,invert_operation);
@@ -295,11 +291,7 @@ int _process_string(FSingSet *index,const FSingCSVFile *csv_format,FReadBufData 
 			return scanto_eol(bufdata),0;
 
 		if (!(ppos = cd_transform(&bufdata->buf[bufdata->pos],MAX_KEY_SOURCE,tdata)))
-			{
-			if (ecb) (*ecb)(&bufdata->buf[oldpos]);
-			scanto_eol(bufdata);
-			return 0;
-			}
+			goto _process_string_error;
 		if ((bufdata->pos += ppos) == bufdata->size) // Это возможно только если файл закончился
 			return bufdata->buf = NULL,1;
 
@@ -311,21 +303,33 @@ int _process_string(FSingSet *index,const FSingCSVFile *csv_format,FReadBufData 
 			inc_buf_pos(bufdata);
 			continue;
 			}
-		column = 0;
 		if (sym != '\n' && sym != '\r')
-			{
-			if (ecb) (*ecb)(&bufdata->buf[oldpos]);
-			scanto_eol(bufdata);
-			return 0;
-			}
+			goto _process_string_error;
 		if (inc_buf_pos(bufdata))	
 			grep_eols(bufdata);
 		return 1;
 		}
 	return keyfound;
+_process_string_error:
+	if (index->conn_flags & CF_PARSE_ERRORS)
+		{
+		int i = 0;
+		char errline[MAX_KEY_SOURCE + 1];
+
+		for (i = 0; i < MAX_KEY_SOURCE; i++)
+			switch (errline[i] = bufdata->buf[oldpos + i])
+				{
+				case '\r': case '\n': case 0: goto _process_string_error_fnd;
+				}
+_process_string_error_fnd:
+		errline[i] = 0;
+		fprintf(stderr,"Bad key in line %s\n",errline);
+		}
+	scanto_eol(bufdata);
+	return 0;
 	}
 
-int fp_parseFile2(FSingSet *index,const FSingCSVFile *csv_format,FReadBufferSet *sourceRbs,processParsedItem pcb,parsedError ecb,unsigned invert,void *cb_param)
+int fp_parseFile2(FSingSet *index,const FSingCSVFile *csv_format,FReadBufferSet *sourceRbs,processParsedItem pcb,unsigned invert,void *cb_param)
 	{
 	FReadBufData bufdata;
 	int rv;
@@ -358,7 +362,7 @@ int fp_parseFile2(FSingSet *index,const FSingCSVFile *csv_format,FReadBufferSet 
 
 	while (bufdata.buf)
 		{
-		if (!_process_string(index,csv_format,&bufdata,tdata,ecb,invert))
+		if (!_process_string(index,csv_format,&bufdata,tdata,invert))
 			continue;
 		tdata->hash = index->hashtable_size;
 		cd_encode(tdata);
@@ -375,7 +379,7 @@ int fp_parseFile2(FSingSet *index,const FSingCSVFile *csv_format,FReadBufferSet 
 	pthread_create(&proc_thread, NULL, process_thread, &ptp);
 	while (bufdata.buf)
 		{
-		if (!_process_string(index,csv_format,&bufdata,tdata,ecb,invert))
+		if (!_process_string(index,csv_format,&bufdata,tdata,invert))
 			continue;
 		tdata->hash = index->hashtable_size;
 		cd_encode(tdata);
@@ -414,7 +418,7 @@ fp_parseFile2_exit:
 
 #define SINGLE_CHAIN_SIZE 4
 
-int fp_parseFile(FSingSet *index,const FSingCSVFile *csv_format,FReadBufferSet *sourceRbs,processParsedItem pcb,parsedError ecb,unsigned invert,void *cb_param)
+int fp_parseFile(FSingSet *index,const FSingCSVFile *csv_format,FReadBufferSet *sourceRbs,processParsedItem pcb,unsigned invert,void *cb_param)
 	{
 	FReadBufData bufdata;
 	bufdata.rbs = sourceRbs;
@@ -441,7 +445,7 @@ int fp_parseFile(FSingSet *index,const FSingCSVFile *csv_format,FReadBufferSet *
 	
 	while (bufdata.buf)
 		{
-		if (!_process_string(index,csv_format,&bufdata,tdatas[0],ecb,invert))
+		if (!_process_string(index,csv_format,&bufdata,tdatas[0],invert))
 			continue;
 		tdatas[0]->hash = index->hashtable_size;
 		cd_encode(tdatas[0]);
@@ -473,7 +477,7 @@ void std_parse_error(char *buf)
 		}
 parse_error_fnd:
 	errline[i] = 0;
-	fprintf(stderr,"Bad character found in domain name %s\n",errline);
+	fprintf(stderr,"Bad key in line %s\n",errline);
 	}
 	
 int fp_countKeys(FReadBufferSet *sourceRbs,off_t file_size)

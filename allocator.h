@@ -68,7 +68,8 @@ typedef struct
 
 // Индекс дырки, S - размер
 // Единицу вычитаем, т.к. дырок нулевого размера нет
-#define HOLESIZE_IDX(S) (((S) <= INDEXED_HOLESIZE_CNT ? (S) : (INDEXED_HOLESIZE_CNT + LOG_BIN(S) - LOG_BIN_MACRO(MAX_KEY_SIZE + MIN_HOLE_SIZE))) - 1)
+#define HOLESIZE_LOG_IDX(S) (INDEXED_HOLESIZE_CNT + LOG_BIN(S) - LOG_BIN_MACRO(MAX_KEY_SIZE + MIN_HOLE_SIZE) - 1)
+#define HOLESIZE_IDX(S) ((S) <= INDEXED_HOLESIZE_CNT ? ((S) - 1) : HOLESIZE_LOG_IDX(S))
 
 // Всего цепочек дырок.
 #define HOLESIZE_CNT (INDEXED_HOLESIZE_CNT + LOG_BIN_MACRO(PAGE_SIZE) - LOG_BIN_MACRO(MAX_KEY_SIZE + MIN_HOLE_SIZE))

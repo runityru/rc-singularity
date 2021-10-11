@@ -463,10 +463,10 @@ element_type hole_index_prep_4_2_2(FSingSet *index,int *res_mem)
 // Большие дырки, выделение/освобождение
 
 // Выделяем память и имитируем запись туда каких-то данных
-element_type test_gen_alloc(FSingSet *index,unsigned size,int *res_mem)
+element_type test_large_alloc(FSingSet *index,unsigned size,int *res_mem)
 	{
 	element_type rv; 
-	element_type *space = idx_general_alloc(index,size,&rv);
+	element_type *space = idx_large_alloc(index,size,&rv);
 	if (rv == ZERO_REF) return rv;
 	space = PAGES_POINTER(index,rv);
 	space[0] = space[size - 1] = INVALID_REF; // ZERO_REF не подходит, т.к. может быть записан в это место при освобождении
@@ -477,9 +477,9 @@ element_type test_gen_alloc(FSingSet *index,unsigned size,int *res_mem)
 	return rv;
 	}
 
-void test_gen_free(FSingSet *index,element_type ref,unsigned size,int *res_mem)
+void test_large_free(FSingSet *index,element_type ref,unsigned size,int *res_mem)
 	{
-	idx_general_free(index,ref,size);
+	idx_large_free(index,ref,size);
 	element_type *space = PAGES_POINTER(index,ref);
 	if (size > HOLE_HEADER_SIZE + HOLE_FOOTER_SIZE) 
 		memset(&space[HOLE_HEADER_SIZE],0,(size - HOLE_HEADER_SIZE - HOLE_FOOTER_SIZE) * ELEMENT_SIZE);
@@ -493,6 +493,9 @@ void test_gen_free(FSingSet *index,element_type ref,unsigned size,int *res_mem)
 //(5.2.2) Индекс искомого размера < 64
 //	5_2_2_1 Индекс найденного размера >= 64
 //	5_2_2_2 Индекс найденного размера < 64
+//(5.2.3) 
+//	5_2_3_1 Индекс искомого размера <= INDEXED_HOLESIZE_CNT (проверяется 5_2_2_2)
+//	5_2_3_2 Индекс искомого размера > INDEXED_HOLESIZE_CNT
 //(5.3) Нет подходящей дырки
 //	5_3_1 Остаток места в неразмеченной области >= требуемому размеру (начальный случай)
 //	5_3_2 Остаток места в неразмеченной области < треб. размера и >= MIN_HOLE_SIZE
@@ -501,52 +504,58 @@ void test_gen_free(FSingSet *index,element_type ref,unsigned size,int *res_mem)
 int gen_alloc_test(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	cp_mark_head_dirty(index->used_cpages);
-	return test_gen_alloc(index,MIN_HOLE_SIZE,res_mem),0; 
+	return test_large_alloc(index,MIN_HOLE_SIZE,res_mem),0; 
 	}
 
 element_type gen_alloc_prep_5_1(FSingSet *index,int *res_mem)
 	{
-	element_type ref = test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
-	test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
-	test_gen_free(index,ref,MIN_HOLE_SIZE,res_mem);
+	element_type ref = test_large_alloc(index,MIN_HOLE_SIZE,res_mem);
+	test_large_alloc(index,MIN_HOLE_SIZE,res_mem);
+	test_large_free(index,ref,MIN_HOLE_SIZE,res_mem);
 	return 0;
 	}
 
-element_type gen_alloc_prep_5_2_1_and_5_2_2_1(FSingSet *index,int *res_mem)
+element_type gen_alloc_prep_large_small(FSingSet *index,int *res_mem)
 	{
-	element_type ref = test_gen_alloc(index,PAGE_SIZE - MIN_HOLE_SIZE,res_mem);
-	test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
-	test_gen_free(index,ref,PAGE_SIZE - MIN_HOLE_SIZE,res_mem);
+	element_type ref = test_large_alloc(index,PAGE_SIZE - MIN_HOLE_SIZE * 3 - 1,res_mem);
+	test_large_alloc(index,MIN_HOLE_SIZE * 3,res_mem);
+	test_large_free(index,ref,PAGE_SIZE - MIN_HOLE_SIZE * 3 - 1,res_mem);
 	return 0;
 	}
 
 int gen_alloc_test_5_2_1(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	cp_mark_head_dirty(index->used_cpages);
-	return test_gen_alloc(index,PAGE_SIZE - MIN_HOLE_SIZE * 2,res_mem),0;
+	return test_large_alloc(index,PAGE_SIZE / 2 - MIN_HOLE_SIZE * 2,res_mem),0;
 	}
 
 element_type gen_alloc_prep_5_2_2_2(FSingSet *index,int *res_mem)
 	{
-	element_type ref = test_gen_alloc(index,2 * MIN_HOLE_SIZE,res_mem);
-	test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
-	test_gen_free(index,ref,2 * MIN_HOLE_SIZE,res_mem);
+	element_type ref = test_large_alloc(index,2 * MIN_HOLE_SIZE,res_mem);
+	test_large_alloc(index,MIN_HOLE_SIZE,res_mem);
+	test_large_free(index,ref,2 * MIN_HOLE_SIZE,res_mem);
 	return 0;
 	}
 
+int gen_alloc_test_5_2_3_2(FSingSet *index,int *res_mem,element_type prep_data)
+	{
+	cp_mark_head_dirty(index->used_cpages);
+	return test_large_alloc(index,PAGE_SIZE - MIN_HOLE_SIZE * 2,res_mem),0;
+	}
+
 element_type gen_alloc_prep_5_3_2(FSingSet *index,int *res_mem)
-	{ return test_gen_alloc(index,PAGE_SIZE - MIN_HOLE_SIZE - 1,res_mem),0; }
+	{ return test_large_alloc(index,PAGE_SIZE - MIN_HOLE_SIZE - 1,res_mem),0; }
 
 int gen_alloc_test_5_3_2(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	cp_mark_head_dirty(index->used_cpages);
-	return test_gen_alloc(index,MIN_HOLE_SIZE * 2,res_mem),0; 
+	return test_large_alloc(index,MIN_HOLE_SIZE * 2,res_mem),0; 
 	}
 
 element_type gen_alloc_prep_5_3_3(FSingSet *index,int *res_mem)
 	{
 	*res_mem += 1; // Неиндексируемый остаток места на странице (т.к. данных реально нет, он не найдется)
-	return test_gen_alloc(index,PAGE_SIZE - 2,res_mem),0; 
+	return test_large_alloc(index,PAGE_SIZE - 2,res_mem),0; 
 	}
 
 //(6) Большое освобождение
@@ -568,63 +577,63 @@ element_type gen_alloc_prep_5_3_3(FSingSet *index,int *res_mem)
 int gen_free_test(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	cp_mark_head_dirty(index->used_cpages);
-	return test_gen_free(index,prep_data,MIN_HOLE_SIZE,res_mem),0; 
+	return test_large_free(index,prep_data,MIN_HOLE_SIZE,res_mem),0; 
 	}
 
 element_type gen_free_prep_6_1_1(FSingSet *index,int *res_mem)
 	{
 	element_type ref1,ref2;
-	ref1 = test_gen_alloc(index,MIN_HOLE_SIZE,res_mem); 
-	ref2 = test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
-	test_gen_free(index,ref1,MIN_HOLE_SIZE,res_mem);
+	ref1 = test_large_alloc(index,MIN_HOLE_SIZE,res_mem); 
+	ref2 = test_large_alloc(index,MIN_HOLE_SIZE,res_mem);
+	test_large_free(index,ref1,MIN_HOLE_SIZE,res_mem);
 	return ref2;
 	}
 
 element_type gen_free_prep_6_1_2(FSingSet *index,int *res_mem)
 	{
-	test_gen_alloc(index,PAGE_SIZE - 1,res_mem); 
-	return test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
+	test_large_alloc(index,PAGE_SIZE - 1,res_mem); 
+	return test_large_alloc(index,MIN_HOLE_SIZE,res_mem);
 	}
 
 element_type gen_free_prep_6_3_2(FSingSet *index,int *res_mem)
 	{
-	test_gen_alloc(index,PAGE_SIZE - 1,res_mem); 
-	test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
-	return test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
+	test_large_alloc(index,PAGE_SIZE - 1,res_mem); 
+	test_large_alloc(index,MIN_HOLE_SIZE,res_mem);
+	return test_large_alloc(index,MIN_HOLE_SIZE,res_mem);
 	}
 
 element_type gen_free_prep_6_4_1(FSingSet *index,int *res_mem)
 	{
-	test_gen_alloc(index,PAGE_SIZE - 1 - MIN_HOLE_SIZE - 1,res_mem); 
-	element_type rv = test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
-	test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
+	test_large_alloc(index,PAGE_SIZE - 1 - MIN_HOLE_SIZE - 1,res_mem); 
+	element_type rv = test_large_alloc(index,MIN_HOLE_SIZE,res_mem);
+	test_large_alloc(index,MIN_HOLE_SIZE,res_mem);
 	return rv;
 	}
 
 element_type gen_free_prep_6_4_2_1(FSingSet *index,int *res_mem)
 	{
-	test_gen_alloc(index,PAGE_SIZE - 1 - MIN_HOLE_SIZE * 2,res_mem); 
-	element_type rv = test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
-	test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
+	test_large_alloc(index,PAGE_SIZE - 1 - MIN_HOLE_SIZE * 2,res_mem); 
+	element_type rv = test_large_alloc(index,MIN_HOLE_SIZE,res_mem);
+	test_large_alloc(index,MIN_HOLE_SIZE,res_mem);
 	return rv;
 	}
 
 element_type gen_free_prep_6_4_2_2(FSingSet *index,int *res_mem)
 	{
-	element_type rv = test_gen_alloc(index,MIN_HOLE_SIZE,res_mem); 
-	element_type ref = test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
-	test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
-	test_gen_free(index,ref,MIN_HOLE_SIZE,res_mem);
+	element_type rv = test_large_alloc(index,MIN_HOLE_SIZE,res_mem); 
+	element_type ref = test_large_alloc(index,MIN_HOLE_SIZE,res_mem);
+	test_large_alloc(index,MIN_HOLE_SIZE,res_mem);
+	test_large_free(index,ref,MIN_HOLE_SIZE,res_mem);
 	return rv;
 	}
 
 element_type gen_free_prep_6_4_3(FSingSet *index,int *res_mem)
 	{
-	test_gen_alloc(index,PAGE_SIZE - 1,res_mem); 
-	element_type rv = test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
-	element_type ref = test_gen_alloc(index,PAGE_SIZE - MIN_HOLE_SIZE,res_mem);
-	test_gen_alloc(index,MIN_HOLE_SIZE,res_mem);
-	test_gen_free(index,ref,MIN_HOLE_SIZE,res_mem);
+	test_large_alloc(index,PAGE_SIZE - 1,res_mem); 
+	element_type rv = test_large_alloc(index,MIN_HOLE_SIZE,res_mem);
+	element_type ref = test_large_alloc(index,PAGE_SIZE - MIN_HOLE_SIZE,res_mem);
+	test_large_alloc(index,MIN_HOLE_SIZE,res_mem);
+	test_large_free(index,ref,MIN_HOLE_SIZE,res_mem);
 	return rv;
 	}
 
@@ -672,9 +681,10 @@ int main(void)
 		{"hole_index_4_2_2",hole_index_prep_4_2_2,hole_deindex_test_small,LM_NONE,0},
 
 		{"gen_alloc_5_1",gen_alloc_prep_5_1,gen_alloc_test,LM_NONE,0},
-		{"gen_alloc_5_2_1",gen_alloc_prep_5_2_1_and_5_2_2_1,gen_alloc_test_5_2_1,LM_NONE,0},
-		{"gen_alloc_5_2_2_1",gen_alloc_prep_5_2_1_and_5_2_2_1,gen_alloc_test,LM_NONE,0},
+		{"gen_alloc_5_2_1",gen_alloc_prep_large_small,gen_alloc_test_5_2_1,LM_NONE,0},
+		{"gen_alloc_5_2_2_1",gen_alloc_prep_large_small,gen_alloc_test,LM_NONE,0},
 		{"gen_alloc_5_2_2_2",gen_alloc_prep_5_2_2_2,gen_alloc_test,LM_NONE,0},
+		{"gen_alloc_5_2_3_2",gen_alloc_prep_large_small,gen_alloc_test_5_2_3_2,LM_NONE,0},
 		{"gen_alloc_5_3_1",NULL,gen_alloc_test,LM_NONE,0},
 		{"gen_alloc_5_3_2",gen_alloc_prep_5_3_2,gen_alloc_test_5_3_2,LM_NONE,0},
 		{"gen_alloc_5_3_3",gen_alloc_prep_5_3_3,gen_alloc_test,LM_NONE,0},

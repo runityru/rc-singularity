@@ -637,7 +637,10 @@ element_type *idx_large_alloc(FSingSet *index,unsigned size,element_type *ref_po
 		return (element_type *)hole;
 		}
 
-	hs_idx = HOLESIZE_IDX(size + MIN_HOLE_SIZE); // Добавляем мин. дырку под откусывание.
+	unsigned hsize = size + MIN_HOLE_SIZE; // Adding min hole size for splitting hole
+	hs_idx = HOLESIZE_IDX(hsize); 
+	if (hsize > INDEXED_HOLESIZE_CNT)
+		hs_idx++;
 	
 	unsigned bitnum = 0;
 	if (hs_idx >= 64)
@@ -674,7 +677,7 @@ idx_general_alloc_hole_found: // Нечитаемо, но минимум пер�
 		}
 
 	// Дырки нет, берем из неразмеченной области
-	unsigned hsize = (PAGE_SIZE - (head->unlocated & OFFSET_MASK)) & OFFSET_MASK; // Остаток места на странице, граница страниц - это заполненная страница а не пустая
+	hsize = (PAGE_SIZE - (head->unlocated & OFFSET_MASK)) & OFFSET_MASK; // Остаток места на странице, граница страниц - это заполненная страница а не пустая
 	if (hsize >= size)
 		{ // have an empty space
 		ref = head->unlocated;
