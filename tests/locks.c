@@ -292,7 +292,7 @@ int locks_test_lm_fast(void)
 	__atomic_store_n(&stopTest,0,__ATOMIC_SEQ_CST);
 	sing_set_key32u(index,"lastreq",0);
 	sing_set_key32u(index,"lastproc",0);
-	cp_full_flush(index);
+	sing_flush(index,NULL);
 	pthread_create(&req_t,NULL,request_thread,req_error);
 	pthread_create(&prc_t,NULL,process_thread,proc_error);
 	pthread_join(req_t,&t1res);

@@ -145,9 +145,8 @@ int parse_process_intersect_replace(FSingSet *index,FTransformData *tdata, void 
 static inline int plain_process_file(FSingSet *index,const FSingCSVFile *csv_file,FReadBufferSet *sourceRbs,unsigned invert,void *cb_param)
 	{
 	fileParseFunc fpc = (index->conn_flags & CF_MULTICORE_PARSE) ? fp_parseFile2 : fp_parseFile;
-	parsedError ecb = (index->conn_flags & CF_PARSE_ERRORS) ? std_parse_error : NULL;
 	processParsedItem pcb = (index->head->use_flags & UF_PHANTOM_KEYS) ? phantom_process : std_process;
-	return (*fpc)(index,csv_file,sourceRbs,pcb,ecb,invert,cb_param);
+	return (*fpc)(index,csv_file,sourceRbs,pcb,invert,cb_param);
 	}
 
 FSingSet *sing_create_set(const char *setname,const FSingCSVFile *csv_file,unsigned keys_count,unsigned flags,unsigned lock_mode,FSingConfig *config)
@@ -319,13 +318,12 @@ static int _sing_marks_work(FSingSet *kvset,const FSingCSVFile *csv_file,const c
 		}
 
 	fileParseFunc fpc = (kvset->conn_flags & CF_MULTICORE_PARSE) ? fp_parseFile2 : fp_parseFile;
-	parsedError ecb = (kvset->conn_flags & CF_PARSE_ERRORS) ? std_parse_error : NULL;
 
 	rv = lck_processLock(kvset);
 	if (!rv)
 		{
 		kvset->head->state_flags ^= SF_DIFF_MARK;
-		rv = (*fpc)(kvset,csv_file,rbs,op_cbs[op],ecb,0,&smw_param);
+		rv = (*fpc)(kvset,csv_file,rbs,op_cbs[op],0,&smw_param);
 		if (!rv)
 			switch(op)
 				{
@@ -614,7 +612,7 @@ int sing_set_key(FSingSet *kvset,const char *key,void *value,unsigned vsize)
 	rv = lck_processUnlock(kvset,rv,0);
 	if (rv & KS_ERROR)
 		return rv;
-	return ((rv & KS_CHANGED) == KS_ADDED) ? 0 : RESULT_KEY_PRESENT;
+	return (rv & (KS_PRESENT | KS_DIFFER)) ? RESULT_KEY_PRESENT : 0;
 	}
 
 int sing_del_key(FSingSet *kvset,const char *key)
