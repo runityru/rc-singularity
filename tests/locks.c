@@ -34,7 +34,7 @@ static void *fill_thread(void *param)
 
 	for(i = 0; i < TEST_SIZE * 10; i++)
 		{
-		if ((res = sing_set_key32u(index,"testkey",i)) && res != RESULT_KEY_PRESENT)
+		if ((res = sing_set_key32u(index,"testkey",i)))
 			{ sprintf(errbuf,"key testkey set failed, result %d",res); goto fill_thread_exit; }
 		}
 	rv = (void *)0; 
@@ -134,7 +134,7 @@ static void *request_thread(void *param)
 		sprintf(errbuf,"Manual unlock failed, result %d",res); 
 		goto request_thread_exit; 
 		}
-	if ((res = sing_set_key32u(index,"lastreq",i - 1)) != RESULT_KEY_PRESENT)
+	if ((res = sing_set_key32u(index,"lastreq",i - 1)))
 		{ sprintf(errbuf,"key lastreq set failed, result %d",res); goto request_thread_exit; }
 	do 
 		{
@@ -216,9 +216,9 @@ static void *process_thread(void *param)
 				{ sprintf(errbuf,"requested key %s do not match",keyname); goto process_thread_exit_unlock; }
 			for(j = 0; j < vsize; j++)
 				data[j] = data[j] - ('a' - 'A');
-			if ((res = sing_set_key(index,keyname,data,vsize)) != RESULT_KEY_PRESENT)
+			if ((res = sing_set_key(index,keyname,data,vsize)))
 				{ sprintf(errbuf,"key %s set failed, result %d",keyname,res); goto process_thread_exit_unlock; }
-			if ((res = sing_set_key32u(index,"lastproc",i)) != RESULT_KEY_PRESENT)
+			if ((res = sing_set_key32u(index,"lastproc",i)))
 				{ sprintf(errbuf,"key lastproc set failed, result %d",res); goto process_thread_exit_unlock; }
 			}
 		if (use_manual_locks && (res = sing_unlock_commit(index,NULL)))
