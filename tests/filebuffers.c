@@ -21,13 +21,13 @@ static const char *pattern = "ABCDEFGHIJK";
 // 2 empty file, fbr_first_block
 //(3) BUFFER_SIZE - 10 bytes, 
 // 3_1 fbr_first_block + fbr_next_block
-// 3_2 fbr_first_block + fbr_next_block_partial
+// 3_2 fbr_first_block + fbr_get_key_ref
 //(4) BUFFER_SIZE
 // 4_1 fbr_first_block + fbr_next_block
-// 4_2 fbr_first_block + fbr_next_block_partial
+// 4_2 fbr_first_block + fbr_get_key_ref
 //(5) BUFFER_SIZE + 10 bytes
 // 5_1 fbr_first_block + fbr_next_block
-// 5_2 fbr_first_block + fbr_next_block_partial
+// 5_2 fbr_first_block + fbr_get_key_ref
 // 5_3 fbr_first_block twice + fbr_next_block
 // 6 BUFFER_SIZE * 2 fbr_first_block + fbr_next_block
 // 7 BUFFER_SIZE * 3 fbr_first_block and stop
@@ -60,84 +60,89 @@ int read_buffer_test_1(FReadBufferSet *rbs,char *res_buffer)
 
 int read_buffer_test_2(FReadBufferSet *rbs,char *res_buffer)
 	{
-	int block_size;
 	if (!rbs)
 		return 1;
-	if (fbr_first_block(rbs,&block_size))
+	if (!fbr_first_block(rbs))
 		return 1;
-	if (fbr_next_block(rbs,&block_size))
+	if (!fbr_next_block(rbs))
 		return 1;
 	return 0;
 	}
 
 int read_buffer_test_3_1(FReadBufferSet *rbs,char *res_buffer)
 	{
-	int block_size;
-	char *block;
-	block = fbr_first_block(rbs,&block_size);
-	if (!block || block_size != BUFFER_SIZE - 10) 
+	if (fbr_first_block(rbs))
+		return 1;
+	char *block = fbr_get_ref(rbs);
+	int block_size = fbr_get_size(rbs);
+	if (block_size != BUFFER_SIZE - 10) 
 		return 1;
 	memcpy(res_buffer,block,block_size);
-	block = fbr_next_block(rbs,&block_size);
-	return block ? 1 : 0;
+	return fbr_next_block(rbs) ? 0 : 1;
 	}
 
 int read_buffer_test_3_2(FReadBufferSet *rbs,char *res_buffer)
 	{
-	int block_size,pos,rpos;
-	char *block,*block2;
-	block = fbr_first_block(rbs,&block_size);
-	if (!block || block_size != BUFFER_SIZE - 10) 
+	if (fbr_first_block(rbs))
 		return 1;
-	rpos = pos = BUFFER_SIZE - 20;
-	memcpy(res_buffer,block,pos);
-	block2 = fbr_next_block_partial(rbs,&block_size,&pos);
-	if (block2 != block || block_size != BUFFER_SIZE - 10 || pos != BUFFER_SIZE - 20)
+	char *block = fbr_get_ref(rbs);
+	int block_size = fbr_get_size(rbs);
+	if (block_size != BUFFER_SIZE - 10) 
 		return 1;
-	memcpy(res_buffer + rpos,&block2[pos],block_size - pos);
+	memcpy(res_buffer,block,BUFFER_SIZE - 20);
+	fbr_shift_pos(rbs,BUFFER_SIZE - 20);
+	char *block2 = fbr_get_key_ref(rbs);
+	block_size = fbr_get_size(rbs);
+	if (block2 != block + BUFFER_SIZE - 20 || block_size != 10)
+		return 1;
+	memcpy(res_buffer + BUFFER_SIZE - 20,block2,block_size);
 	return 0;
 	}
 
 int read_buffer_test_4_1(FReadBufferSet *rbs,char *res_buffer)
 	{
-	int block_size;
-	char *block;
-	block = fbr_first_block(rbs,&block_size);
-	if (!block || block_size != BUFFER_SIZE) 
+	if (fbr_first_block(rbs))
+		return 1;
+	char *block = fbr_get_ref(rbs);
+	int block_size = fbr_get_size(rbs);
+	if (block_size != BUFFER_SIZE) 
 		return 1;
 	memcpy(res_buffer,block,block_size);
-	block = fbr_next_block(rbs,&block_size);
-	if (!block || block_size) 
-		return 1;
-	return 0;
+	return fbr_next_block(rbs) ? 0 : 1;
 	}
 
 int read_buffer_test_4_2(FReadBufferSet *rbs,char *res_buffer)
 	{
-	int block_size,pos,rpos;
-	char *block,*block2;
-	block = fbr_first_block(rbs,&block_size);
-	if (!block || block_size != BUFFER_SIZE) 
+	if (fbr_first_block(rbs))
 		return 1;
-	rpos = pos = BUFFER_SIZE - 20;
-	memcpy(res_buffer,block,pos);
-	block2 = fbr_next_block_partial(rbs,&block_size,&pos);
-	if (!block2 || block2 == block || block_size || pos != -20)
+	char *block = fbr_get_ref(rbs);
+	int block_size = fbr_get_size(rbs);
+	if (block_size != BUFFER_SIZE) 
 		return 1;
-	memcpy(res_buffer + rpos,&block2[pos],block_size - pos);
+	memcpy(res_buffer,block,BUFFER_SIZE - 20);
+	fbr_shift_pos(rbs,BUFFER_SIZE - 20);
+	char *block2 = fbr_get_key_ref(rbs);
+	block_size = fbr_get_size(rbs);
+	if (block2 == block + BUFFER_SIZE - 20 || block_size != 20)
+		return 1;
+	memcpy(res_buffer + BUFFER_SIZE - 20,block2,block_size);
 	return 0;
 	}
 
 int read_buffer_test_5_1(FReadBufferSet *rbs,char *res_buffer)
 	{
-	int block_size;
-	char *block;
-	block = fbr_first_block(rbs,&block_size);
-	if (!block || block_size != BUFFER_SIZE) 
+	if (fbr_first_block(rbs))
+		return 1;
+	char *block = fbr_get_ref(rbs);
+	int block_size = fbr_get_size(rbs);
+	if (block_size != BUFFER_SIZE) 
 		return 1;
 	memcpy(res_buffer,block,block_size);
-	block = fbr_next_block(rbs,&block_size);
-	if (!block || block_size != 10) 
+	if (fbr_next_block(rbs))
+		return 1;
+	block = fbr_get_ref(rbs);
+	block_size = fbr_get_size(rbs);
+	if (block_size != 10)
 		return 1;
 	memcpy(res_buffer + BUFFER_SIZE,block,block_size);
 	return 0;
@@ -145,66 +150,74 @@ int read_buffer_test_5_1(FReadBufferSet *rbs,char *res_buffer)
 
 int read_buffer_test_5_2(FReadBufferSet *rbs,char *res_buffer)
 	{
-	int block_size,pos,rpos;
-	char *block,*block2;
-	block = fbr_first_block(rbs,&block_size);
-	if (!block || block_size != BUFFER_SIZE) 
+	if (fbr_first_block(rbs))
 		return 1;
-	rpos = pos = BUFFER_SIZE - 20;
-	memcpy(res_buffer,block,pos);
-	block2 = fbr_next_block_partial(rbs,&block_size,&pos);
-	if (!block2 || block2 == block || block_size != 10 || pos != -20)
+	char *block = fbr_get_ref(rbs);
+	int block_size = fbr_get_size(rbs);
+	if (block_size != BUFFER_SIZE) 
 		return 1;
-	memcpy(res_buffer + rpos,&block2[pos],block_size - pos);
+	memcpy(res_buffer,block,BUFFER_SIZE - 20);
+	fbr_shift_pos(rbs,BUFFER_SIZE - 20);
+	char *block2 = fbr_get_key_ref(rbs);
+	block_size = fbr_get_size(rbs);
+	if (block2 == block + BUFFER_SIZE - 20 || block_size != 30)
+		return 1;
+	memcpy(res_buffer + BUFFER_SIZE - 20,block2,block_size);
 	return 0;
 	}
 
 int read_buffer_test_5_3(FReadBufferSet *rbs,char *res_buffer)
 	{
-	int block_size,pos,rpos;
-	char *block,*block2;
-	block = fbr_first_block(rbs,&block_size);
-	if (!block || block_size != BUFFER_SIZE) 
+	if (fbr_first_block(rbs))
 		return 1;
-	block2 = fbr_first_block(rbs,&block_size);
-	if (block2 != block || block_size != BUFFER_SIZE) 
+	char *block = fbr_get_ref(rbs);
+	int block_size = fbr_get_size(rbs);
+	if (block_size != BUFFER_SIZE) 
 		return 1;
-	rpos = pos = BUFFER_SIZE - 20;
-	memcpy(res_buffer,block,pos);
-	block2 = fbr_next_block_partial(rbs,&block_size,&pos);
-	if (!block2 || block2 == block || block_size != 10 || pos != -20)
+	if (fbr_first_block(rbs))
 		return 1;
-	memcpy(res_buffer + rpos,&block2[pos],block_size - pos);
+	char *block2 = fbr_get_ref(rbs);
+	if (block2 != block) 
+		return 1;
+	block_size = fbr_get_size(rbs);
+	if (block_size != BUFFER_SIZE) 
+		return 1;
+	memcpy(res_buffer,block,BUFFER_SIZE - 20);
+	fbr_shift_pos(rbs,BUFFER_SIZE - 20);
+	block2 = fbr_get_key_ref(rbs);
+	block_size = fbr_get_size(rbs);
+	if (block2 == block + BUFFER_SIZE - 20 || block_size != 30)
+		return 1;
+	memcpy(res_buffer + BUFFER_SIZE - 20,block2,block_size);
 	return 0;
 	}
 
 int read_buffer_test_6(FReadBufferSet *rbs,char *res_buffer)
 	{
-	int block_size;
-	char *block;
-	block = fbr_first_block(rbs,&block_size);
-	if (!block || block_size != BUFFER_SIZE) 
+	if (fbr_first_block(rbs))
+		return 1;
+	char *block = fbr_get_ref(rbs);
+	int block_size = fbr_get_size(rbs);
+	if (block_size != BUFFER_SIZE) 
 		return 1;
 	memcpy(res_buffer,block,block_size);
-	block = fbr_next_block(rbs,&block_size);
-	if (!block || block_size != BUFFER_SIZE) 
+	if (fbr_next_block(rbs))
+		return 1;
+	block = fbr_get_ref(rbs);
+	block_size = fbr_get_size(rbs);
+	if (block_size != BUFFER_SIZE) 
 		return 1;
 	memcpy(res_buffer + BUFFER_SIZE,block,block_size);
-	block = fbr_next_block(rbs,&block_size);
-	if (!block || block_size) 
-		return 1;
-	block = fbr_next_block(rbs,&block_size);
-	if (block) 
-		return 1;
-	return 0;
+	return fbr_next_block(rbs) ? 0 : 1;
 	}
 
 int read_buffer_test_7(FReadBufferSet *rbs,char *res_buffer)
 	{
-	int block_size;
-	char *block;
-	block = fbr_first_block(rbs,&block_size);
-	if (!block || block_size != BUFFER_SIZE) 
+	if (fbr_first_block(rbs))
+		return 1;
+	char *block = fbr_get_ref(rbs);
+	int block_size = fbr_get_size(rbs);
+	if (block_size != BUFFER_SIZE) 
 		return 1;
 	memcpy(res_buffer,block,block_size);
 	return 0;

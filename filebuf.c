@@ -71,6 +71,8 @@ FReadBufferSet *fbr_create(const char *filename)
 	rv->no_close = 0;
 	rv->buffers[0].size = rv->buffers[1].size = 0;
 	rv->mbuf_num = 0;
+	rv->mbuf_pos = 0;
+	rv->eof = 0;
 	rv->mbuf = &rv->buffers[0];
 	rv->buffers[0].state_data.state = rv->buffers[1].state_data.state = BUFF_STATE_FREE;
 	if ((rv->fd = open(filename,O_RDONLY)) == -1 || _init_state(&rv->buffers[0].state_data) || _init_state(&rv->buffers[1].state_data)) 
@@ -99,40 +101,39 @@ void fbr_finish(FReadBufferSet *set)
 	free(set);
 	}
 
-char *fbr_first_block(FReadBufferSet *set,int *size)
+int fbr_first_block(FReadBufferSet *set)
 	{
 	FReadBuffer *workbuf = &set->buffers[0];
 	_buffer_acquire(&workbuf->state_data,BUFF_STATE_FILL);
-	return (*size = workbuf->size) ? &workbuf->data[KEY_BUFFER_SIZE] : NULL;
+	return workbuf->size ? 0 : (set->eof = 1);
 	}
 
-char *fbr_next_block(FReadBufferSet *set,int *size)
+int fbr_next_block(FReadBufferSet *set)
 	{
 	if (set->mbuf->state_data.state == BUFF_STATE_STOP)
-		return NULL;
+		return set->eof = 1;
 	_buffer_release(&set->mbuf->state_data,BUFF_STATE_FILL);
 	set->mbuf_num = 1 - set->mbuf_num;
 	set->mbuf = &set->buffers[set->mbuf_num];
+	set->mbuf_pos = 0;
 	_buffer_acquire(&set->mbuf->state_data,BUFF_STATE_FILL);
-	*size = set->mbuf->size;
-	return &set->mbuf->data[KEY_BUFFER_SIZE];
+	return set->mbuf->size ? 0 : (set->eof = 1);
 	}
 
-char *fbr_next_block_partial(FReadBufferSet *set,int *size,int *crp)
+char *fbr_get_key_ref(FReadBufferSet *set)
 	{
-	int tocpy;
 	FReadBuffer *obuf = set->mbuf;
-	if (set->mbuf->state_data.state == BUFF_STATE_STOP)
-		return &set->mbuf->data[KEY_BUFFER_SIZE];
+	if (obuf->size - set->mbuf_pos >= KEY_BUFFER_SIZE || obuf->state_data.state == BUFF_STATE_STOP)
+		return &obuf->data[KEY_BUFFER_SIZE + set->mbuf_pos];
+	int tocpy = set->mbuf->size - set->mbuf_pos;
 	set->mbuf_num = 1 - set->mbuf_num;
 	set->mbuf = &set->buffers[set->mbuf_num];
 	_buffer_acquire(&set->mbuf->state_data,BUFF_STATE_FILL);
-	if ((tocpy = *size - *crp))
-		memcpy(&set->mbuf->data[KEY_BUFFER_SIZE - tocpy],&obuf->data[KEY_BUFFER_SIZE + *crp],tocpy);
+	if (tocpy)
+		memcpy(&set->mbuf->data[KEY_BUFFER_SIZE - tocpy],&obuf->data[KEY_BUFFER_SIZE + set->mbuf_pos],tocpy);
 	_buffer_release(&obuf->state_data,BUFF_STATE_FILL);
-	*size = set->mbuf->size;
-	*crp = -tocpy;
-	return &set->mbuf->data[KEY_BUFFER_SIZE];
+	set->mbuf_pos = -tocpy;
+	return &set->mbuf->data[KEY_BUFFER_SIZE + set->mbuf_pos];
 	}
 
 static void *write_thread(void *param)

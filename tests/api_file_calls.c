@@ -314,5 +314,6 @@ int main(void)
 		if (run_test(&tests[i]))
 			rv = 1;
 		}
+
 	return rv;
 	}
