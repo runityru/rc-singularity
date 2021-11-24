@@ -3,9 +3,10 @@ LOGFILE = -DFILE_LOG="debug.log"
 DEBUG = -g -DMEMORY_CHECK -DLOG_OPERATION -DLOG_MEMORY -DLOG_LOCKS
 COMMON_OPTIONS = -Wall -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE
 LIBS = -lrt -lpthread
-BASE_SET = config.c codec.c index.c cpages.c filebuf.c fileparse.c utils.c locks.c keyhead.c allocator.c rc_singularity.c
+BASE_SET = pipelines.c config.c codec.c index.c cpages.c filebuf.c fileparse.c utils.c locks.c keyhead.c allocator.c rc_singularity.c
+BASE_INCLUDE = defines.h logbin.h pipelines.h config.h codec.h index.h cpages.h filebuf.h fileparse.h utils.h locks.h keyhead.h allocator.h 
 
-.PHONY: all test
+.PHONY: all test autotests
 
 all: debug release autotests
 
@@ -31,16 +32,20 @@ codec_ops_tests:
 	gcc $(DEBUG) $(COMMON_OPTIONS) tests/codec_ops.c $(BASE_SET) -o tests/codec_ops $(LIBS)
 locks_tests:
 	gcc $(DEBUG) $(COMMON_OPTIONS) tests/locks.c $(BASE_SET) -o tests/locks $(LIBS)
-fiilebuf_tests:
+filebuf_tests:
 	gcc $(DEBUG) $(COMMON_OPTIONS) tests/filebuffers.c $(BASE_SET) -o tests/filebuffers $(LIBS)
+fileparse_tests:
+	gcc $(DEBUG) $(COMMON_OPTIONS) tests/fileparse.c $(BASE_SET) -o tests/fileparse $(LIBS)
 api_read_tests:
 	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/api_read_calls.c $(BASE_SET) -o tests/api_read_calls $(LIBS)
+api_write_tests:
+	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/api_write_calls.c $(BASE_SET) -o tests/api_write_calls $(LIBS)
 api_file_tests:
 	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/api_file_calls.c $(BASE_SET) -o tests/api_file_calls $(LIBS)
 api_other_tests:
 	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/api_other_calls.c $(BASE_SET) -o tests/api_other_calls $(LIBS)
 
-autotests: memory_tests keyheads_tests index_ops_tests codec_ops_tests locks_tests fiilebuf_tests api_read_tests api_file_tests api_other_tests
+autotests: memory_tests keyheads_tests index_ops_tests codec_ops_tests locks_tests filebuf_tests fileparse_tests api_read_tests api_write_tests api_file_tests api_other_tests
 	
 test:
 	./tests/memory
@@ -49,7 +54,9 @@ test:
 	./tests/codec_ops
 	./tests/locks
 	./tests/filebuffers
+	./tests/fileparse
 	./tests/api_read_calls
+	./tests/api_write_calls
 	./tests/api_file_calls
 	./tests/api_other_calls
 
@@ -72,4 +79,4 @@ clean:
 	rm -f bin/*
 	rm -f debug/*
 	rm -f lib/*
-	rm -f tests/memory tests/keyheads tests/index_ops tests/codec_ops tests/locks tests/api_read_calls tests/api_file_calls tests/api_other_calls
+	rm -f tests/memory tests/keyheads tests/index_ops tests/codec_ops tests/locks tests/api_read_calls tests/api_write_calls tests/api_file_calls tests/api_other_calls
