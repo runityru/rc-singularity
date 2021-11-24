@@ -57,9 +57,12 @@ int collision_search(unsigned hashtable_size,unsigned needed_hash,unsigned neede
 	return cnt;
 	}
 
+const char * const single_key = "key1";
+const char * const single_value = "oldvalue";
+
 element_type one_key_value_prep(FSingSet *index,int *res_mem)
 	{
-	if (sing_set_key(index,"key","oldvalue",9))
+	if (sing_set_key(index,single_key,(void *)single_value,strlen(single_value) + 1))
 		return 1;
 	return 0;
 	}

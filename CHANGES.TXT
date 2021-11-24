@@ -3,6 +3,9 @@ Major - data store format
 Minor - incompatible API changes
 Release - fixes, performance improvement, API additions
 
+0.9.8 - pipelines separated from file parsing. Added file parsing tests. Added lost multikey read calls and multikey write calls.
+        Added multikey write calls tests. Some api and documentation fixes
+
 0.9.7 - fixed bug with log based value size index, and related test. Fixed bug in locks test and in idx_key_set call.
 
 0.9.6 - sing_intersect_file and sing_intersect_replace_file no more generate output file, data can be dumped later if needed.

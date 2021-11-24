@@ -16,6 +16,8 @@ int collision_search(unsigned hashtable_size,unsigned needed_hash,unsigned neede
 extern const char *multi_keys[7];
 extern const char *multi_keys_long[7];
 extern char *multi_values[5];
+extern const char * const single_key;
+extern const char * const single_value;
 
 element_type one_key_value_prep(FSingSet *index,int *res_mem);
 element_type many_key_value_prep(FSingSet *index,int *res_mem);

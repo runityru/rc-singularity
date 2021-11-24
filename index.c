@@ -681,7 +681,7 @@ int idx_key_get(FSingSet *index,FTransformData *tdata,FReaderLock *rlock,void *v
 	return rv;
 	}
 
-int idx_key_compare(FSingSet *index, FTransformData *tdata, FReaderLock *rlock, void *value_cmp, unsigned value_cmp_size)
+int idx_key_compare(FSingSet *index, FTransformData *tdata, FReaderLock *rlock, const void *value_cmp, unsigned value_cmp_size)
 	{
 	FKeyHeadGeneral found;
 	unsigned vsrc_size;
@@ -971,6 +971,8 @@ int idx_key_try_set(FSingSet *index,FTransformData *tdata,uint32_t allowed)
 			rv = _mark_value(index,&hblock[hnum],tdata);
 			if (allowed & KS_DELETED)
 				rv |= _replace_value(index,&hblock[hnum],tdata);
+			else
+				rv |= KS_PRESENT;
 			if (rv & (KS_CHANGED | KS_MARKED))
 				cp_mark_hash_entry_dirty(index->used_cpages,tdata->hash);
 			return rv;
@@ -1093,6 +1095,8 @@ int idx_key_set(FSingSet *index,FTransformData *tdata,uint32_t allowed)
 					rv = _mark_value(index,&hblock[(HNUM)],tdata); \
 					if (allowed & KS_DELETED) \
 						rv |= _replace_value(index,&hblock[(HNUM)],tdata); \
+					else \
+						rv |= KS_PRESENT; \
 					if (rv & (KS_CHANGED | KS_MARKED)) \
 						cp_mark_hblock_dirty(index->used_cpages,hb_idx); \
 					return rv; \
@@ -1119,6 +1123,8 @@ int idx_key_set(FSingSet *index,FTransformData *tdata,uint32_t allowed)
 				rv = _mark_value(index,&hblock[KH_BLOCK_LAST],tdata);
 				if (allowed & KS_DELETED) \
 					rv |= _replace_value(index,&hblock[KH_BLOCK_LAST],tdata);
+				else \
+					rv |= KS_PRESENT; \
 				if (rv & (KS_CHANGED | KS_MARKED))
 					cp_mark_hblock_dirty(index->used_cpages,hb_idx);
 				return rv;

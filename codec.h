@@ -48,7 +48,7 @@ typedef struct FTransformDataTg
 	unsigned old_key_rest_size;		// Размер старого тела ключа при удалении
 	void *old_value;						// Ссылка на старое значение
 	uint32_t old_value_size;			// Размер старого значения
-	uint32_t padding;
+	uint32_t res_num;						// Номер в массиве результатов для множественной обработки
 // 64 байта для 32-х битной версии
 	element_type key_rest[CACHE_ALIGNED_MAX_KEY_SIZE];				// Место для битового сжатия ключа
 	unsigned char transformed_key[CACHE_ALIGNED_MAX_KEY_SOURCE];	// Место для трансформации алфавита ключа
@@ -58,10 +58,10 @@ typedef struct FTransformDataTg
 	} __attribute__ ((aligned (CACHE_LINE_SIZE))) FTransformData;
 	
 // Поиск префикса операции перед именем ключа
-static inline int cd_opscan(const char *buffer,FTransformData *tdata,int invert_operation)
+static inline int cd_opscan(char sym,FTransformData *tdata,int invert_operation)
 	{
 	int rv = 0;
-	switch(buffer[0])
+	switch(sym)
 		{
 		case '+': tdata->operation = OP_ADD; rv = 1; break;
 		case '=': tdata->operation = OP_MODIFY; rv = 1; break;

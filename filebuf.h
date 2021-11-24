@@ -35,7 +35,7 @@ typedef struct FIOBufferStateTg
 typedef struct FReadBufferTg
 	{
 	FIOBufferState state_data;
-	unsigned size;
+	int size;
 	CACHE_LINE_PADDING(padding1,sizeof(FIOBufferState) + sizeof(unsigned));
 	char data[KEY_BUFFER_SIZE + BUFFER_SIZE];
 	} FReadBuffer;
@@ -48,14 +48,39 @@ typedef struct FReadBufferSetTg
 	int thread_started;
 	unsigned no_close;
 	unsigned mbuf_num; // Number of main thread buffer
+	int mbuf_pos; // Read position in main buffer
+	int eof;
 	FReadBuffer *mbuf;
 	} FReadBufferSet;
 
 FReadBufferSet *fbr_create(const char *filename);
 void fbr_finish(FReadBufferSet *set);
-char *fbr_first_block(FReadBufferSet *set,int *size);
-char *fbr_next_block(FReadBufferSet *set,int *size);
-char *fbr_next_block_partial(FReadBufferSet *set,int *size,int *crp);
+int fbr_first_block(FReadBufferSet *set);
+int fbr_next_block(FReadBufferSet *set);
+char *fbr_get_key_ref(FReadBufferSet *set);
+
+static inline char *fbr_get_ref(FReadBufferSet *set)
+	{ return &set->mbuf->data[KEY_BUFFER_SIZE + set->mbuf_pos]; }
+
+static inline int fbr_get_size(FReadBufferSet *set)
+	{ return set->mbuf->size - set->mbuf_pos; }
+
+static inline int fbr_shift_pos(FReadBufferSet *set,int cnt) // After reading key, we should have something left to read if file is not at the end
+	{
+	if ((set->mbuf_pos += cnt) >= set->mbuf->size) 
+		set->eof = 1;
+	return set->eof;
+	}
+
+static inline char fbr_get_sym(FReadBufferSet *set)
+	{ return set->mbuf->data[KEY_BUFFER_SIZE + set->mbuf_pos]; }
+
+static inline int fbr_inc_pos(FReadBufferSet *set)
+	{
+	if (++set->mbuf_pos >= set->mbuf->size)
+		return fbr_next_block(set);
+	return 0;
+	}
 
 	// 1 extra byte for op sign, 1 byte for divider between key and value, 1 byte for '\n' in output
 #define WRITE_BUFFER_GROW ALIGN_UP(MAX_KEY_SOURCE + MAX_VALUE_SOURCE + 3,DISK_PAGE_BYTES) 
