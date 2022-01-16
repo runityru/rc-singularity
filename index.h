@@ -76,20 +76,18 @@ typedef union FBadStatesTg
 
 typedef struct FSetHeadTg
 	{ 
-	// Первая кешлиния содержит константные данные
+	// first cache line - constant data
 	FHeadSizes sizes;						// Размеры данных на диске и в памяти 
 	unsigned signature; 					// Подпись формата файла
 	unsigned hashtable_size;    		// Размер хештаблицы
-	unsigned use_flags;					// Различные флаги, определяемые при создании (SF_...)
-	unsigned use_mutex;					// Использовать мутекс при записи
-	unsigned use_spin;					// Использовать спинлоки при записи
-	unsigned check_mutex;				// Проверять мутекс при записи
+	unsigned use_flags;					// Flags, defined at creation (SF_...)
+	unsigned lock_mode;					// 
+	unsigned use_spin;					// Use spinlocks (mode is LM_PROTECTED or LM_FAST)
 	FBadStates bad_states;				// Состояния, препятствующие операции записи
-	unsigned read_only;					// Только для чтения (копируется в FSingSet при подключении)
 	unsigned delimiter;					// Разделитель столбцов в значениях (char)
-	CACHE_LINE_PADDING(padding1,sizeof(FHeadSizes) + sizeof(FBadStates) + sizeof(unsigned) * 7);
+	CACHE_LINE_PADDING(padding1,sizeof(FHeadSizes) + sizeof(FBadStates) + sizeof(unsigned) * 5);
 
-	// Вторая кешлиния содержит редко меняющиеся данные
+	// Second cache line - rare changed data
 	unsigned state_flags;				// Флаги состояния (HF_...)
 	unsigned pcnt;							// Всего выделено страниц
 	unsigned first_empty_page;			// Первая целиком пустая выделенная страница
@@ -99,7 +97,7 @@ typedef struct FSetHeadTg
 	unsigned wip;							// Набор синхронизируется с диском
 	CACHE_LINE_PADDING(padding2,sizeof(unsigned) * 5 + sizeof(element_type) * (SMALL_SIZES_CNT + 1));
 	
-	// Дальше данные, которые меняются каждую операцию
+	// Memory allocation data, changed at each write under memory lock
 	unsigned count;						// Всего ключей (только для статистики)
 	element_type unlocated;				// Первый свободный элемент на странице общего назначения
 	element_type holes[HOLESIZE_CNT]; // Ссылки на начальные дырки в цепочках. Для размеров 1 .. (MIN_HOLE_SIZE - 1) - ведут на первые спецстраницы со своб. участками
@@ -116,26 +114,47 @@ typedef struct FSetHeadTg
 typedef struct FChangedPagesTg FChangedPages;
 typedef struct FLockSetTg FLockSet;
 
+typedef struct FProtectLockTg
+	{
+	union {
+		struct {
+			uint32_t locks_count;
+			uint32_t manual_locked;
+			};
+		uint64_t whole;
+		};
+	CACHE_LINE_PADDING(padding,sizeof(uint64_t) * 1);
+	} FProtectLock;
+
+
+typedef struct FFileNamesTg {
+	char *index_shm_file;
+	char *pages_shm_file;
+	char *index_shm;
+	char *pages_shm;
+	char *index_file;
+	char *pages_file;
+	} FFileNames;
+
 typedef struct FSingSetTg
 	{
+	FProtectLock protect_lock; // This is whole chache line for protect mode locks. Other data are semiconstant
+
 	int index_fd; 		// Шара индекса
 	int pages_fd; 		// Шара страниц
 	int disk_index_fd; 	// Файл индекса на диске
 	int disk_pages_fd; 	// Файл страниц на диске
 
-	char *disk_index_fname;
-	char *disk_pages_fname;
-	char *mem_index_fname;
-	char *mem_pages_fname;
+	FFileNames filenames;
 
 	char last_error[512];
 
 	unsigned hashtable_size; 
 	unsigned conn_flags;
-	unsigned locks_count __attribute__ ((aligned (8))); // Число повешенных блокировок на цепочки
-	unsigned manual_locked; // Флаг ручной блокировки
-	unsigned read_only; // Набор доступен только для чтения
-	unsigned is_private; // Набор доступен только для чтения
+	unsigned read_only; // Connection is read only
+	unsigned is_private; // Set is in process memory
+
+	struct FSingSetTg *old_data; // Old set data, we should keep during recreation
 
 	FSetHead *head;
 	FChangedPages *real_cpages;
@@ -153,7 +172,7 @@ void idx_set_error(FSingSet *index,const char *message);
 void idx_set_formatted_error(FSingSet *index,const char *format,...);
 
 FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,FSingConfig *config);
-void idx_creation_done(FSingSet *index,unsigned lock_mode);
+int idx_creation_done(FSingSet *index,unsigned lock_mode);
 int idx_relink_set(FSingSet *index);
 
 FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config);
@@ -265,7 +284,6 @@ typedef struct FCheckDataTg
 	uint64_t checked_subpages[PAGES_MASK_SIZE];
 	} FCheckData;
 
-int idx_flush(FSingSet *index);
 int idx_revert(FSingSet *index);
 int idx_check_all(FSingSet *index,int reserved);
 

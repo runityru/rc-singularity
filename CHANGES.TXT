@@ -3,6 +3,11 @@ Major - data store format
 Minor - incompatible API changes
 Release - fixes, performance improvement, API additions
 
+0.9.9 - Fixed issues with incosistent reading and writing during idx_revert. 
+        SING_LM_NONE now has no write locks at all, but SING_LM_FAST has normal write lock. sing_lockRW deleted, because it is unsafe. 
+        Documentation fixed.
+        idx_create no longer damage existing set, and has normal rollback in case of failure.
+
 0.9.8 - pipelines separated from file parsing. Added file parsing tests. Added lost multikey read calls and multikey write calls.
         Added multikey write calls tests. Some api and documentation fixes
 

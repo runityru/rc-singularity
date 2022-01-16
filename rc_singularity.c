@@ -14,6 +14,7 @@
 #include "fileparse.h"
 #include "pipelines.h"
 #include "locks.h"
+#include "cpages.h"
 #include "filebuf.h"
 #include "utils.h"
 #include "rc_singularity.h"
@@ -250,9 +251,9 @@ FSingSet *sing_create_set(const char *setname,const FSingCSVFile *csv_file,unsig
 		{
 		FFileParseParam fpp = {csv_file,sourceRbs};
 		if (sourceRbs && pl_pipeline(index,fp_init,fp_get_next,&fpp,(index->head->use_flags & UF_PHANTOM_KEYS) ? phantom_process : std_process,0,NULL,keys_count))
-			sing_delete_set(index);
-		else
-			idx_creation_done(index,lock_mode);
+			sing_delete_set(index),index = NULL;
+		else if (idx_creation_done(index,lock_mode))
+			sing_delete_set(index),index = NULL;
 		}
 	fbr_finish(sourceRbs);
 	if (!config)
@@ -284,13 +285,7 @@ int sing_check_set(FSingSet *index)
 	{ return idx_check_all(index,0); }
 
 unsigned sing_get_mode(FSingSet *index)
-	{
-	if (index->head->use_mutex) return LM_SIMPLE;
-	if (index->head->check_mutex) return LM_PROTECTED;
-	if (index->head->use_spin) return LM_FAST;
-	if (index->head->read_only) return LM_READ_ONLY;
-	return LM_NONE;
-	}
+	{ return index->head->lock_mode;	}
 
 #define SIMPLE_CALL_CHECKUP(INDEX) if(__atomic_load_n(&(INDEX)->head->bad_states.states.deleted,__ATOMIC_RELAXED) && idx_relink_set(INDEX)) return ERROR_CONNECTION_LOST
 
@@ -301,19 +296,26 @@ int sing_unlock_commit(FSingSet *kvset,uint32_t *saved)
 	{ return lck_manualUnlock(kvset,1,saved); }
 
 int sing_unlock_revert(FSingSet *kvset)
-	{
-	if (kvset->head->use_flags & UF_NOT_PERSISTENT)
-		return ERROR_IMPOSSIBLE_OPERATION;
-	return lck_manualUnlock(kvset,0,NULL); 
-	}
+	{ return lck_manualUnlock(kvset,0,NULL); }
 
 int sing_flush(FSingSet *kvset,uint32_t *saved)
 	{
-	SIMPLE_CALL_CHECKUP(kvset);
-	if (kvset->head->use_mutex || kvset->head->check_mutex || kvset->read_only 
-			|| kvset->manual_locked || (kvset->head->use_flags & UF_NOT_PERSISTENT))
+	if ((kvset->head->use_flags & UF_NOT_PERSISTENT) || kvset->read_only)
 		return ERROR_IMPOSSIBLE_OPERATION;
-	int res = idx_flush(kvset);
+	int res;
+	BAD_STATES_CHECK(kvset);
+	switch(kvset->head->lock_mode)
+		{
+		case LM_SIMPLE:
+		case LM_PROTECTED:
+			return ERROR_IMPOSSIBLE_OPERATION;
+		case LM_FAST:
+			if ((res = lck_lock_ex(kvset)))
+				return res;
+		}
+	res = cp_flush(kvset);
+	if (kvset->head->lock_mode == LM_FAST)
+		lck_unlock_ex(&kvset->lock_set->shex_lock);
 	if (res < 0) return res;
 	if (saved) *saved = res;
 	return 0;
@@ -321,13 +323,23 @@ int sing_flush(FSingSet *kvset,uint32_t *saved)
 
 int sing_revert(FSingSet *kvset)
 	{
-	SIMPLE_CALL_CHECKUP(kvset);
-	if (kvset->head->use_mutex || kvset->head->check_mutex || kvset->read_only 
-			|| kvset->manual_locked || (kvset->head->use_flags & UF_NOT_PERSISTENT))
+	if ((kvset->head->use_flags & UF_NOT_PERSISTENT) || kvset->read_only)
 		return ERROR_IMPOSSIBLE_OPERATION;
-	int res = idx_revert(kvset);
-	if (res < 0) return res;
-	return 0;
+	int res;
+	BAD_STATES_CHECK(kvset);
+	switch(kvset->head->lock_mode)
+		{
+		case LM_SIMPLE:
+		case LM_PROTECTED:
+			return ERROR_IMPOSSIBLE_OPERATION;
+		case LM_FAST:
+			if ((res = lck_lock_ex(kvset)))
+				return res;
+		}
+	res = idx_revert(kvset);
+	if (kvset->head->lock_mode == LM_FAST)
+		lck_unlock_ex(&kvset->lock_set->shex_lock);
+	return res;
 	}
 
 int sing_add_file(FSingSet *kvset,const FSingCSVFile *csv_file)
@@ -486,7 +498,7 @@ int sing_get_values_cb_n(FSingSet *kvset,const char *const *keys,const unsigned 
 	SIMPLE_CALL_CHECKUP(kvset);
 	FTransformData tdata[2];
 	FTransformData *tdatas[2] = {&tdata[0],&tdata[1]};
-	FReaderLock rlock = NORMAL_LOCK_INIT;
+	FReaderLock rlock = READER_LOCK_INIT;
 	unsigned i = 1,rv = 0;
 	if (!count)
 		return 0;
@@ -1020,10 +1032,10 @@ int sing_del_keys_n(FSingSet *kvset,const char *const *keys,const unsigned *ksiz
 int sing_iterate(FSingSet *kvset,CSingIterateCallback cb,void *param)
 	{
 	int rv = 0;
-	if (!kvset->head->read_only && (rv = lck_processLock(kvset)))
+	if (kvset->head->lock_mode != LM_READ_ONLY && (rv = lck_processLock(kvset)))
 		return rv;
 	rv = idx_iterate_all(kvset,cb,param);
-	if (!kvset->head->read_only)
+	if (kvset->head->lock_mode != LM_READ_ONLY)
 		rv = lck_processUnlock(kvset,rv,0);
 	return rv;
 	}

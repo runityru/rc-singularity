@@ -19,7 +19,6 @@
 #define SING_CF_PARSE_ERRORS 0x200
 #define SING_CF_FULL_LOAD 0x400
 #define SING_CF_READER 0x800
-#define SING_CF_STAY_LOCKED 0x1000
 
 #ifndef _SING_CSV_FILE
 #define _SING_CSV_FILE
@@ -94,7 +93,6 @@ unsigned sing_get_mode(FSingSet *index);
 // locks and disk sinchronisation
 
 int sing_lock_W(FSingSet *kvset);
-int sing_lock_RW(FSingSet *kvset);
 int sing_unlock_commit(FSingSet *kvset,uint32_t *saved);
 int sing_unlock_revert(FSingSet *kvset);
 int sing_flush(FSingSet *kvset,uint32_t *saved);
