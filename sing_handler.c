@@ -110,8 +110,10 @@ int main(int argc, char *argv[])
 				printf ("%d\n",sing_total_count(shmIndex));
 				break;
 			case SO_Diff:
-				res = (config->operations[0].flags & OF_SHAREREPLACE) ? 
+				res = (opdata->flags & OF_SHAREREPLACE) ? 
 							sing_diff_replace_file(shmIndex,&opdata->file_op,opdata->result_file) : sing_diff_file(shmIndex,&opdata->file_op,opdata->result_file);
+				if (opdata->flags & OF_FILEREPLACE)
+					source_replacement = opdata->file_op.filename;
 				break;
 			case SO_Dump: res = sing_dump(shmIndex,opdata->result_file,opdata->flags); break;
 			case SO_MaxRead:
