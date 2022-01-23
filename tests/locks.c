@@ -14,9 +14,9 @@
 #include "../utils.h"
 #include "../rc_singularity.h"
 
-#define TEST_SIZE 100000
+#define TEST_SIZE 10000
 
-int stopTest = 0;
+volatile int stopTest = 0;
 
 static void *fill_thread(void *param)
 	{
@@ -39,7 +39,7 @@ static void *fill_thread(void *param)
 		}
 	rv = (void *)0; 
 fill_thread_exit:
-	stopTest = 1;
+	__atomic_store_n(&stopTest,1,__ATOMIC_RELEASE);
 	sing_unlink_set(index);
 	return rv;
 	}
@@ -60,7 +60,7 @@ int locks_test_reader(void)
 		sing_delete_config(config);
 		return 1;
 		}
-	__atomic_store_n(&stopTest,0,__ATOMIC_SEQ_CST);
+	__atomic_store_n(&stopTest,0,__ATOMIC_RELAXED);
 	sing_set_key32u(index,"testkey",0);
 	cp_full_flush(index);
 	pthread_create(&req_t,NULL,fill_thread,fill_error);
@@ -82,6 +82,86 @@ int locks_test_reader(void)
 	if (idx_check_all(index,reserved))
 		printf("Test %s failed: %s\n","locks_test_reader",sing_get_error(index)), rv = 1; 
 	sing_delete_set(index);
+	sing_delete_config(config);
+	return rv;
+	}
+
+static void *set_revert_thread(void *param)
+	{
+	char *errbuf = param;
+	unsigned i;
+	void *rv = (void *)1;
+	int res;
+
+	FSingSet *kvset = sing_link_set("set_revert_test",0,NULL);
+	if (!kvset)
+		{
+		sprintf(errbuf,"failed to link set set_revert_test"); 
+		return (void *)1;
+		}
+
+	for(i = 0; i < TEST_SIZE; i++)
+		{
+		if ((res = sing_set_key(kvset,"tst","testval",8)))
+			{ sprintf(errbuf,"key testkey set failed, result %d",res); goto set_revert_thread_exit; }
+		if ((res = sing_revert(kvset)))
+			{ sprintf(errbuf,"revert failed, result %d",res); goto set_revert_thread_exit; }
+		}
+	rv = (void *)0; 
+set_revert_thread_exit:
+	__atomic_store_n(&stopTest,1,__ATOMIC_RELEASE);
+	sing_unlink_set(kvset);
+	return rv;
+	}
+
+int locks_test_reader_revert(void)
+	{
+	int rv = 0,reserved = 0;
+	void *t1res;
+	char fill_error[512];
+	FSingSet *kvset = NULL;
+	FSingConfig *config = sing_config_get_default();
+	if (!config)
+		return 1;
+	pthread_t req_t;
+	if (!(kvset = sing_create_set("set_revert_test",NULL,17003,0,LM_NONE,config)))
+		{
+		printf("Test %s failed: %s\n","locks_test_reader_revert",sing_config_get_error(config));
+		sing_delete_config(config);
+		return 1;
+		}
+	__atomic_store_n(&stopTest,0,__ATOMIC_RELAXED);
+	cp_full_flush(kvset);
+	pthread_create(&req_t,NULL,set_revert_thread,fill_error);
+	char testval[8];
+	unsigned vsize;
+	int res;
+	while(!__atomic_load_n(&stopTest,__ATOMIC_ACQUIRE))
+		{
+		vsize = 8;
+		res = sing_get_value(kvset,"tst",testval,&vsize); // Short key name located only in table
+		if (!res)
+			{
+			if (vsize != 8 || strcmp(testval,"testval"))
+				{
+				printf("Test %s failed: key testkey get failed, value differ\n","locks_test_reader_revert");
+				rv = 1;
+				break;
+				}
+			}
+		else if (res != SING_RESULT_KEY_NOT_FOUND)
+			{
+			printf("Test %s failed: key tst get failed, result %d\n","locks_test_reader_revert",res);
+			rv = 1;
+			break;
+			}
+		}
+	pthread_join(req_t,&t1res);
+	if ((int64_t)t1res)
+		printf ("Test %s failed: %s\n","locks_test_reader",fill_error), rv = 1;
+	if (idx_check_all(kvset,reserved))
+		printf("Test %s failed: %s\n","locks_test_reader",sing_get_error(kvset)), rv = 1; 
+	sing_delete_set(kvset);
 	sing_delete_config(config);
 	return rv;
 	}
@@ -170,7 +250,7 @@ static void *request_thread(void *param)
 		lastproc = nproc;
 		}
 	while(lastproc != TEST_SIZE);
-	stopTest = 1;
+	__atomic_store_n(&stopTest,1,__ATOMIC_RELEASE);
 	sing_unlink_set(index);
 	return (void *)0;
 
@@ -178,7 +258,7 @@ request_thread_exit_unlock:
 	if (use_manual_locks) 
 		sing_unlock_revert(index);
 request_thread_exit:
-	stopTest = 1;
+	__atomic_store_n(&stopTest,1,__ATOMIC_RELEASE);
 	sing_unlink_set(index);
 	return (void *)1;
 	}
@@ -226,14 +306,14 @@ static void *process_thread(void *param)
 		lastreq = nreq;
 		}
 	while (!__atomic_load_n(&stopTest,__ATOMIC_ACQUIRE));
-	stopTest = 1;
+	__atomic_store_n(&stopTest,1,__ATOMIC_RELEASE);
 	sing_unlink_set(index);
 	return (void *)0;
 process_thread_exit_unlock:
 	if (use_manual_locks) 
 		sing_unlock_revert(index);
 process_thread_exit:
-	stopTest = 1;
+	__atomic_store_n(&stopTest,1,__ATOMIC_RELEASE);
 	sing_unlink_set(index);
 	return (void *)1;
 	}
@@ -312,6 +392,8 @@ int main(void)
 	{
 	int rv = 0;
 	if (locks_test_reader())
+		rv = 1;
+	if (locks_test_reader_revert())
 		rv = 1;
 	if (locks_test_lm_simple())
 		rv = 1;
