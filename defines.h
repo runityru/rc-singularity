@@ -18,6 +18,8 @@
 
 typedef unsigned element_type; // Adressed element
 
+#define SYSTEM_SHM_PATH "/dev/shm/"
+
 // Empty reference
 #define ZERO_REF 0
 // Invalid reference for testing

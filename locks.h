@@ -15,6 +15,13 @@
 #define RW_TIMEOUT 500
 #endif
 
+#define BAD_STATES_CHECK(KVSET)  do { if ((KVSET)->head->bad_states.some_present) \
+		{ \
+		while(__atomic_load_n(&(KVSET)->head->bad_states.states.deleted,__ATOMIC_RELAXED)) \
+			if (idx_relink_set((KVSET))) return ERROR_CONNECTION_LOST; \
+		if ((KVSET)->head->bad_states.states.corrupted) return ERROR_DATA_CORRUPTED; \
+		} } while(0)
+
 typedef struct FSingSetTg FSingSet;
 
 typedef unsigned long long lockmask_t;
@@ -37,6 +44,30 @@ typedef union FRWLockTg
 	lockmask_t fullValue;
 	} FRWLock;
 
+// Shared/Exclusive spinlock for writers
+// Exclusive lock obtained in case of:
+// - manual W or RW locks in SING_LM_FAST and SING_LM_NONE
+// - revert data from disk copy
+// Shared lock obtained in case of:
+// - normal write call in SING_LM_PROTECTED, SING_LM_FAST and SING_LM_NONE
+
+typedef union FShExLockTg
+ 	{
+	struct {
+		uint32_t shared_count;
+ 		uint32_t exclusive_lock;
+		};
+	uint64_t whole;
+	} FShExLock;
+
+void lck_lock_sh(FShExLock *lock);
+
+void lck_unlock_sh(FShExLock *lock);
+
+int lck_lock_ex(FSingSet *index);
+static inline void lck_unlock_ex(FShExLock *lock)
+	{ __atomic_store_n(&lock->exclusive_lock,0,__ATOMIC_RELEASE); }
+
 typedef struct FReaderLockTg
  	{
 	unsigned short keep;
@@ -44,15 +75,15 @@ typedef struct FReaderLockTg
  	unsigned readerSeq;
 	} FReaderLock;
 
-#define NORMAL_LOCK_INIT {0,0,0}
-#define KEEPING_LOCK_INIT {1,0,0}
+#define READER_LOCK_INIT {0,0,0}
 	
 typedef struct FLockSetTg
 	{
 	FRWLock rw_lock __attribute__ ((aligned (8)));
+	FShExLock shex_lock __attribute__ ((aligned (8)));
+	unsigned del_in_chain;
 	unsigned memory_lock;
 	unsigned marks_lock;
-	unsigned del_in_chain;
 	unsigned padding;
 	pthread_mutex_t process_lock __attribute__ ((aligned (8)));
 	uint64_t hash_locks[] __attribute__ ((aligned (8)));
@@ -113,6 +144,10 @@ static inline void lck_marksUnlock(FLockSet *locks)
 	{
 	__atomic_store_n(&locks->marks_lock,0,__ATOMIC_RELEASE);
 	}
+
+void lck_fullReaderLock(FLockSet *locks);
+
+void lck_fullReaderUnlock(FLockSet *locks);
 
 // Ставит блокировку читателя
 void lck_readerLock(FLockSet *locks,FReaderLock *rlock);
