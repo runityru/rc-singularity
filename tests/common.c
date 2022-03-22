@@ -23,6 +23,7 @@ int collision_search(unsigned hashtable_size,unsigned needed_hash,unsigned neede
 	FTransformData tdata;
 
 	tdata.value_source = NULL;
+	tdata.use_phantom = 0;
 	tdata.head.fields.chain_stop = 1;
 	tdata.head.fields.diff_mark = 0;
 

@@ -7,6 +7,11 @@
 #ifndef _RC_SINGULARITY_H
 #define _RC_SINGULARITY_H
 
+#ifdef __INTELLISENSE__
+#define __null 0
+#endif
+
+#include <stddef.h>
 #include <stdint.h>
 
 // KVset use flags

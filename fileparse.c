@@ -36,6 +36,7 @@ int fp_get_next(FSingSet *index,void *source,FTransformData *tdata,int invert_op
 		return 0;
 _get_next_pair_repeat:
 	tdata->value_size = 0;
+	tdata->use_phantom = 0;
 	has_val = 0;
 	for (col_mask = 1LL; col_mask != key_mask; col_mask <<= 1)
 		{

@@ -39,7 +39,8 @@ typedef struct FTransformDataTg
 	unsigned hash; 						// Хеш. Заполняется перед cd_encode размером хеш-таблицы, после вызова там хеш
 	unsigned trans_key_size;			// Число символов в трансформированном ключе. Заполняется в cd_transform
 	unsigned value_size;					// Размер данных в value_source. Заполняется перед вызовом cd_transform
-	unsigned operation;					// Операция с ключом. Заполняется в вызове cd_transform
+	unsigned short operation;			// Операция с ключом. Заполняется в вызове cd_transform
+	unsigned short use_phantom;		// Обрабатывать фантомный ключ как обычный
 	unsigned char *value_source;		// Ссылка на данные в источнике. Заполняется перед вызовом cd_transform
 	FKeyHeadGeneral head;				// Заголовок ключа. Копируется при успешном добавлении
 // 32 байта для 32-х битной версии

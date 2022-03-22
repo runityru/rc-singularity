@@ -52,13 +52,13 @@ test:
 	./tests/keyheads
 	./tests/index_ops
 	./tests/codec_ops
-	./tests/locks
 	./tests/filebuffers
 	./tests/fileparse
 	./tests/api_read_calls
 	./tests/api_write_calls
 	./tests/api_file_calls
 	./tests/api_other_calls
+	./tests/locks
 
 install:
 	mkdir -p /var/lib/rc-singularity

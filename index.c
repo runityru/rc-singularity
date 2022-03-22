@@ -700,10 +700,13 @@ static inline FKeyHeadGeneral *get_hashtable_entry(FSingSet *index,unsigned hash
 	}
 
 // return 1 if keys are equal, 0 otherwise or if we have left allocated memory. 
+// return phantom (deleted) keys only if tdata->use_phantom is setted
 static inline int _compare_keys_R(FSingSet *index,FKeyHeadGeneral old_key,FTransformData *tdata)
 	{
 	if ((old_key.links.next ^ tdata->head.links.next) & 0xFFFFFC7E) // (key1->size != key2->size || key1->data0 != key2->data0)
 		return 0; 
+	if ((index->head->use_flags & UF_PHANTOM_KEYS) && old_key.fields.diff_mark && !tdata->use_phantom)
+		return 0;
 	element_type *old_data;
 	unsigned size = old_key.fields.size;
 	if (!size) return 1;
@@ -939,7 +942,7 @@ void idx_print_chain_distrib(FSingSet *index)
 
 //////////////////////////////
 
-// Возвращает 1 если ключи одинаковы, 0 если различны
+// returns 1 if keys are equal, 0 otherwise. Return phantom (deleted) keys too
 static inline int _compare_keys_W(FSingSet *index,FKeyHeadGeneral old_key,FTransformData *tdata)
 	{
 	if ((old_key.links.next ^ tdata->head.links.next) & 0xFFFFFC7E) // (key1->size != key2->size || key1->data0 != key2->data0)
@@ -961,11 +964,13 @@ static inline int _compare_keys_W(FSingSet *index,FKeyHeadGeneral old_key,FTrans
 	return (*old_data == cmp) ? 1 : 0;
 	}
 
+// Replacing value with data from tdata
 static int _alloc_and_set_rest(FSingSet *index,FTransformData *tdata)
 	{
 	unsigned sz = tdata->head.data.size_and_value >> 1,vsize = 0;
 	if (sz <= 1) return 1;
 	FValueHeadGeneral value_head;
+	value_head.whole = 0;
 	if (sz >= 64) // Если есть значение - убираем его бит и добавляем размер значения
 		{
 		sz -= 64;
@@ -977,7 +982,7 @@ static int _alloc_and_set_rest(FSingSet *index,FTransformData *tdata)
 			value_head.fields.extra_bytes = 4 - rest;
 			}
 		else
-			value_head.whole = size_e;
+			value_head.fields.size_e = size_e;
 		vsize = size_e + VALUE_HEAD_SIZE;
 		}
 	element_type *key_rest;
@@ -991,6 +996,86 @@ static int _alloc_and_set_rest(FSingSet *index,FTransformData *tdata)
 	if (value_head.fields.extra_bytes)
 		((char *)(&key_rest[sz+vsize]))[-1] = 0xFF;
 
+	return 1;
+	}
+
+// Replacing value with data from tdata and appending data from phantom_value as a phantom
+static int _alloc_and_set_rest_phantom(FSingSet *index,FTransformData *tdata,FValueHeadGeneral *phantom_value)
+	{
+	unsigned sz = tdata->head.data.size_and_value >> 1,vsize = 0,extra_bytes = 0;
+	FValueHeadGeneral value_head,phantom_head;
+	phantom_head.whole = phantom_value->whole;
+	phantom_head.fields.phantom = 1;
+	unsigned exbytes = phantom_head.fields.extra_bytes / 4;
+	phantom_head.fields.size_e -= exbytes;
+	unsigned *phval = (unsigned *)&phantom_value[1];
+	if (!(phantom_head.fields.extra_bytes -= exbytes * 4) && phantom_head.fields.size_e && !(((char *)&phval[phantom_head.fields.size_e])[-1]))
+		{
+		phantom_head.fields.extra_bytes = 4;
+		phantom_head.fields.size_e ++;
+		}
+	value_head.whole = 0;
+	if (sz >= 64) // Если есть значение - убираем его бит и добавляем размер значения
+		{
+		sz -= 64;
+		unsigned size_e = tdata->value_size / ELEMENT_SIZE;
+		unsigned rest = tdata->value_size % ELEMENT_SIZE;
+		if (rest)
+			value_head.fields.size_e = ++size_e, extra_bytes = 4 - rest;
+		else
+			value_head.fields.size_e = size_e;
+		vsize = size_e + VALUE_HEAD_SIZE;
+		}
+	else
+		{
+		tdata->head.fields.has_value = 1;
+		if (sz == 1)
+			tdata->key_rest[0] = tdata->head.fields.extra;
+		}
+	value_head.fields.phantom = 1;
+	value_head.fields.size_e += phantom_head.fields.size_e + VALUE_HEAD_SIZE;
+	value_head.fields.extra_bytes = extra_bytes + phantom_head.fields.size_e * ELEMENT_SIZE + sizeof(FValueHead);
+	element_type *key_rest;
+	if (!(key_rest = idx_general_alloc(index,sz + vsize + phantom_head.fields.size_e + VALUE_HEAD_SIZE,&tdata->head.fields.extra)))
+		return 0;
+	memcpy(key_rest,tdata->key_rest,sz * ELEMENT_SIZE);
+	key_rest[sz] = value_head.whole;
+	memcpy(&key_rest[sz+1],tdata->value_source,tdata->value_size);
+	key_rest[sz+vsize] = phantom_head.whole;
+	memcpy(&key_rest[sz+vsize+1],&phantom_value[VALUE_HEAD_SIZE],phantom_head.fields.size_e * ELEMENT_SIZE);
+	if (phantom_head.fields.extra_bytes)
+		((char *)(&key_rest[sz+vsize+1 + phantom_head.fields.size_e]))[-1] = 0xFF;
+	return 1;
+	}
+
+// Replacing value with data from phantom_value as a phantom
+static int _alloc_and_set_phantom(FSingSet *index,FTransformData *tdata,FValueHeadGeneral *phantom_value)
+	{
+	unsigned sz = tdata->head.fields.size;
+	unsigned vsize = phantom_value->fields.size_e;
+	if (!vsize)
+		{
+		tdata->head.fields.has_value = 0;
+		if (sz <= 1 && !vsize)
+			{
+			if (sz == 1)
+				tdata->head.fields.extra = tdata->key_rest[0];
+			return 1;
+			}
+		}
+	else 
+		vsize++;
+	element_type *key_rest;
+	if (!(key_rest = idx_general_alloc(index,sz + vsize,&tdata->head.fields.extra)))
+		return 0;
+	memcpy(key_rest,tdata->key_rest,sz * ELEMENT_SIZE);
+	if (vsize)
+		{
+		FValueHeadGeneral phval = *phantom_value;
+		phval.fields.phantom = 0;
+		key_rest[sz] = phval.whole;
+		memcpy(&key_rest[sz+VALUE_HEAD_SIZE],&phantom_value[VALUE_HEAD_SIZE],phantom_value->fields.size_e * ELEMENT_SIZE);
+		}
 	return 1;
 	}
 
@@ -1047,6 +1132,86 @@ static int _replace_value(FSingSet *index,FKeyHeadGeneral *old_key_head,FTransfo
 	return rv | KS_CHANGED;
 	}
 
+static int _replace_phantom_value(FSingSet *index,FKeyHeadGeneral *old_key_head,FTransformData *tdata, int marked)
+	{
+	int rv = marked;
+	FORMATTED_LOG_OPERATION("key %s already exists\n",tdata->key_source);
+	FValueHeadGeneral *phantom_value = NULL;
+	FValueHeadGeneral empty;
+	FKeyHead tmp_key_head;
+	empty.whole = 0LL;
+	if (!marked)
+		{  
+		if (tdata->head.fields.diff_mark)
+			return KS_SUCCESS; // Deleted to deleted - nothing to do
+		// normal to normal - keep old phantom or normal value as phantom
+		rv = _compare_value(index,old_key_head,tdata);
+		if (!(rv & KS_DIFFER))
+			return rv;
+		goto _replace_phantom_value_replace;
+		}
+	else
+		{ 
+		if (!tdata->head.fields.diff_mark) // deleted to normal
+			goto _replace_phantom_value_replace;
+		else
+			{ // normal to deleted
+			if (!old_key_head->fields.has_value)
+				return KS_SUCCESS; // Nothnig to do
+			element_type *old_data = pagesPointer(index,old_key_head->fields.extra);
+			FValueHeadGeneral *old_vhead = (FValueHeadGeneral *)&old_data[old_key_head->fields.size];
+			if (!old_vhead->fields.phantom)
+				return KS_SUCCESS; // Nothing to do
+			phantom_value = (FValueHeadGeneral *)VALUE_PHANTOM_HEAD(&old_vhead->fields);
+			// Converting old phantom to normal
+			lck_memoryLock(index); 
+			if (!_alloc_and_set_phantom(index,tdata,phantom_value))
+				return lck_memoryUnlock(index),ERROR_NO_SET_MEMORY;
+
+			unsigned old_sz = tdata->head.fields.size;
+			unsigned old_vsize = VALUE_SIZE_BYTES(&old_vhead->fields);
+			element_type *old_value = &old_data[old_sz + VALUE_HEAD_SIZE];
+			old_sz += old_vhead->fields.size_e + VALUE_HEAD_SIZE;
+			tdata->old_key_rest = old_key_head->fields.extra;
+			tdata->old_key_rest_size = old_sz;
+			tdata->old_value_size = old_vsize;
+			tdata->old_value = old_value;
+			goto _replace_phantom_value_exit;
+			}
+		}
+
+_replace_phantom_value_replace:
+	if (old_key_head->fields.has_value)
+		{
+		element_type *old_data = pagesPointer(index,old_key_head->fields.extra);
+		FValueHeadGeneral *old_vhead = (FValueHeadGeneral *)&old_data[old_key_head->fields.size];
+		if (!old_vhead->fields.phantom)
+			phantom_value = old_vhead;
+		else
+			phantom_value = (FValueHeadGeneral *)VALUE_PHANTOM_HEAD(&old_vhead->fields);
+
+		unsigned old_sz = tdata->head.fields.size;
+		unsigned old_vsize = VALUE_SIZE_BYTES(&old_vhead->fields);
+		element_type *old_value = &old_data[old_sz + VALUE_HEAD_SIZE];
+		old_sz += old_vhead->fields.size_e + VALUE_HEAD_SIZE;
+		tdata->old_key_rest = old_key_head->fields.extra;
+		tdata->old_key_rest_size = old_sz;
+		tdata->old_value_size = old_vsize;
+		tdata->old_value = old_value;
+		}
+	else
+		phantom_value = &empty;
+	lck_memoryLock(index); // Блокируем операции с памятью
+	if (!_alloc_and_set_rest_phantom(index,tdata,phantom_value))
+		return lck_memoryUnlock(index),ERROR_NO_SET_MEMORY;
+_replace_phantom_value_exit:
+	tmp_key_head = old_key_head->fields;
+	tmp_key_head.has_value = tdata->head.fields.has_value;
+	tmp_key_head.extra = tdata->head.fields.extra;
+	old_key_head->fields = tmp_key_head;
+	return rv | KS_CHANGED;
+	}
+
 static inline void _change_counter(FSingSet *index,unsigned hash,int diff)
 	{
 	if (index->counters)
@@ -1058,6 +1223,7 @@ static inline void _change_counter(FSingSet *index,unsigned hash,int diff)
 	index->head->count += diff;
 	}
 
+// This call is for diff only, we can skip phantom related work
 int idx_key_try_lookup(FSingSet *index,FTransformData *tdata)
 	{
 	FKeyHeadGeneral *hblock;
@@ -1110,10 +1276,15 @@ int idx_key_try_set(FSingSet *index,FTransformData *tdata,uint32_t allowed)
 		if (_compare_keys_W(index,hblock[hnum],tdata)) 
 			{
 			rv = _mark_value(index,&hblock[hnum],tdata);
-			if (allowed & KS_DELETED)
-				rv |= _replace_value(index,&hblock[hnum],tdata);
+			if (index->head->use_flags & UF_PHANTOM_KEYS)
+				{
+				if ((allowed & KS_DELETED) || (rv & KS_MARKED))
+					rv |= _replace_phantom_value(index,&hblock[hnum],tdata,rv);
+				else if (!tdata->head.fields.diff_mark)
+					rv |= KS_PRESENT;
+				}
 			else
-				rv |= KS_PRESENT;
+				rv |= (allowed & KS_DELETED) ? _replace_value(index,&hblock[hnum],tdata) : KS_PRESENT; 
 			if (rv & (KS_CHANGED | KS_MARKED))
 				cp_mark_hash_entry_dirty(index->used_cpages,tdata->hash);
 			return rv;
@@ -1151,6 +1322,7 @@ int idx_key_try_set(FSingSet *index,FTransformData *tdata,uint32_t allowed)
 	return KS_ADDED | KS_MARKED; // We set KS_MARKED since key was added to chain and old_counters was increased too
 	}
 
+// This call is for diff only, we can skip phantom related work
 int idx_key_lookup(FSingSet *index,FTransformData *tdata)
 	{
 	element_type *chain_block_ref = tdata->chain_idx_ref;
@@ -1233,11 +1405,16 @@ int idx_key_set(FSingSet *index,FTransformData *tdata,uint32_t allowed)
 				FAILURE_CHECK(!hblock[(HNUM)].fields.space_used,"empty header in chain"); \
 				if (_compare_keys_W(index,hblock[(HNUM)],tdata)) \
 					{ \
-					rv = _mark_value(index,&hblock[(HNUM)],tdata); \
-					if (allowed & KS_DELETED) \
-						rv |= _replace_value(index,&hblock[(HNUM)],tdata); \
+					rv = _mark_value(index,&hblock[HNUM],tdata); \
+					if (index->head->use_flags & UF_PHANTOM_KEYS) \
+						{ \
+						if ((allowed & KS_DELETED) || (rv & KS_MARKED)) \
+							rv |= _replace_phantom_value(index,&hblock[HNUM],tdata,rv); \
+						else if (!tdata->head.fields.diff_mark) \
+							rv |= KS_PRESENT; \
+						} \
 					else \
-						rv |= KS_PRESENT; \
+						rv |= (allowed & KS_DELETED) ? _replace_value(index,&hblock[HNUM],tdata) : KS_PRESENT; \
 					if (rv & (KS_CHANGED | KS_MARKED)) \
 						cp_mark_hblock_dirty(index->used_cpages,hb_idx); \
 					return rv; \
@@ -1245,7 +1422,6 @@ int idx_key_set(FSingSet *index,FTransformData *tdata,uint32_t allowed)
 				if (hblock[(HNUM)].fields.chain_stop) \
 					{ header_num = (HNUM)+1; goto idx_key_set_not_found; } \
 				} while (0)
-
 		switch (chain_start_num)
 			{
 			CHECK_HEADER_IN_BLOCK_SET(0);
@@ -1262,10 +1438,15 @@ int idx_key_set(FSingSet *index,FTransformData *tdata,uint32_t allowed)
 			if (_compare_keys_W(index,hblock[KH_BLOCK_LAST],tdata))
 				{
 				rv = _mark_value(index,&hblock[KH_BLOCK_LAST],tdata);
-				if (allowed & KS_DELETED) \
-					rv |= _replace_value(index,&hblock[KH_BLOCK_LAST],tdata);
-				else \
-					rv |= KS_PRESENT; \
+				if (index->head->use_flags & UF_PHANTOM_KEYS)
+					{
+					if ((allowed & KS_DELETED) || (rv & KS_MARKED))
+						rv |= _replace_phantom_value(index,&hblock[KH_BLOCK_LAST],tdata,rv);
+					else if (!tdata->head.fields.diff_mark)
+						rv |= KS_PRESENT;
+					}
+				else
+					rv |= (allowed & KS_DELETED) ? _replace_value(index,&hblock[KH_BLOCK_LAST],tdata) : KS_PRESENT; 
 				if (rv & (KS_CHANGED | KS_MARKED))
 					cp_mark_hblock_dirty(index->used_cpages,hb_idx);
 				return rv;
@@ -1608,6 +1789,42 @@ static int result_output(FSingSet *kvset,const FKeyHeadGeneral head,FWriteBuffer
 	return size;
 	}
 
+static int phantom_output(FSingSet *kvset,const FKeyHeadGeneral head,FWriteBufferSet *wbs)
+	{
+	element_type *key_rest = (head.data.size_and_value > 3) ? pagesPointer(kvset,head.fields.extra) : NULL;
+	char *name = fbw_get_ref(wbs);
+	name[0] = '+';
+	unsigned keysize = cd_decode(&name[1],&head.fields,key_rest);
+	unsigned size = keysize + 1;
+
+	if (head.fields.diff_mark)
+		name[0] = '-';
+	if (head.fields.has_value)
+		{
+		element_type *value = &key_rest[head.fields.size];
+		if (((FValueHead *)value)->phantom)
+			{
+			unsigned *phantom_value = VALUE_PHANTOM_HEAD((FValueHead *)value);
+			name[0] = '!';
+			unsigned ph_vsize = VALUE_SIZE_BYTES((FValueHead *)phantom_value);
+			name[size++] = kvset->head->delimiter;
+			memcpy(&name[size],(const char *)&phantom_value[1],ph_vsize);
+			size += ph_vsize;
+			name[size++] = '\n';
+			name[size++] = '=';
+			memcpy(&name[size],&name[1],keysize);
+			size += keysize;
+			}
+		unsigned vsize = VALUE_SIZE_BYTES((FValueHead *)value);
+		name[size++] = kvset->head->delimiter;
+		memcpy(&name[size],(const char *)&value[1],vsize);
+		size += vsize;
+		}
+	name[size++] = '\n';
+	fbw_shift_pos(wbs,size);
+	return size;
+	}
+
 static void process_unmarked_from_hash_chain(FSingSet *index,unsigned hash,FWriteBufferSet *wbs)
 	{
 	FKeyHeadGeneral *next_key,*work_key;
@@ -1873,10 +2090,7 @@ void idx_process_unmarked(FSingSet *index,unsigned *counters,FWriteBufferSet *wb
 static inline int key_output(FSingSet *kvset,FKeyHeadGeneral key_data,FWriteBufferSet *wbs)
 	{
 	fbw_check_space(wbs);
-	int add = 0;
-	if (kvset->head->use_flags & UF_PHANTOM_KEYS)
-		fbw_add_sym(wbs,key_data.fields.diff_mark?'-':'+'),add = 1;
-	return add + result_output(kvset,key_data,wbs);
+	return (kvset->head->use_flags & UF_PHANTOM_KEYS) ? phantom_output(kvset,key_data,wbs) : result_output(kvset,key_data,wbs);
 	}
 
 static int dump_hash_chain(FSingSet *index,unsigned hash,FWriteBufferSet *wbs)
@@ -2068,7 +2282,7 @@ static int iterate_hash_chain(FSingSet *index,unsigned hash,CSingIterateCallback
 	if (inum == KH_ZERO_REF)
 		return 0;
 
-process_unmarked_from_hash_chain_next_cycle:
+iterate_hash_chain_next_cycle:
 	last_block = (FKeyHeadGeneral *)regionPointer(index,KH_BLOCK_IDX(inum),KH_BLOCK_SIZE);
 	hnum = KH_BLOCK_NUM(inum);
 	while (hnum < KH_BLOCK_LAST)
@@ -2088,7 +2302,7 @@ process_unmarked_from_hash_chain_next_cycle:
 	if (!work_key->fields.space_used)
 		{
 		inum = work_key->links.next;
-		goto process_unmarked_from_hash_chain_next_cycle;
+		goto iterate_hash_chain_next_cycle;
 		}
 	cb_call(index,work_key,cb,param);
 	return 0;
@@ -2178,7 +2392,7 @@ int check_element(FSingSet *index,FKeyHead *key_head,FCheckData *check_data)
 	unsigned sz = key_head->size, k_size = key_head->size;
 	FValueHead *vhead;
 	element_type *key_rest = NULL;
-	if (key_head->diff_mark != (index->head->state_flags & SF_DIFF_MARK) ? 1 : 0)
+	if (!(index->head->use_flags & UF_PHANTOM_KEYS) && key_head->diff_mark != (index->head->state_flags & SF_DIFF_MARK) ? 1 : 0)
 		return idx_set_formatted_error(index,"Key diff mark is not equal set diff mark"),1;
 
 	if (key_head->has_value)

@@ -82,8 +82,8 @@ static inline int fbr_inc_pos(FReadBufferSet *set)
 	return 0;
 	}
 
-	// 1 extra byte for op sign, 1 byte for divider between key and value, 1 byte for '\n' in output
-#define WRITE_BUFFER_GROW ALIGN_UP(MAX_KEY_SOURCE + MAX_VALUE_SOURCE + 3,DISK_PAGE_BYTES) 
+	// 1 extra byte for op sign, 1 byte for divider between key and value, 1 byte for '\n' in output. Doubled for phantom keys
+#define WRITE_BUFFER_GROW ALIGN_UP((MAX_KEY_SOURCE + MAX_VALUE_SOURCE + 3) * 2,DISK_PAGE_BYTES) 
 
 typedef struct FWriteBufferTg
 	{

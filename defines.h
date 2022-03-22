@@ -81,13 +81,8 @@ typedef unsigned element_type; // Adressed element
 #define DISK_PAGE_BYTES (PAGE_SIZE_BYTES / 64)
 
 // Max value size in elements (max value source size is calculated)
-#define MAX_VALUE_SIZE 16384
+#define MAX_VALUE_SIZE 32768
 
-#define VALUE_SIZE_WIDTH (LOG_BIN_MACRO(MAX_VALUE_SIZE))
-// Value size should be power of 2 for omitting value size check in reads
-#if (1 << VALUE_SIZE_WIDTH) != MAX_VALUE_SIZE
-	#error Bad value size
-#endif
 #if MAX_VALUE_SIZE > PAGE_SIZE
 	#error Value size is larger than page size 
 #endif

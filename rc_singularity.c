@@ -19,22 +19,6 @@
 #include "utils.h"
 #include "rc_singularity.h"
 
-// Коллбек вывода результатов
-
-static inline void result_output_wval(const FKeyHead *head,const element_type *key_rest,const void *value, unsigned vsize,FWriteBufferSet *resultWbs)
-	{
-	char *name = fbw_get_ref(resultWbs);
-	unsigned size = cd_decode(&name[0],head,key_rest);
-	if (vsize)
-		{
-		name[size++] = '\t';
-		memcpy(&name[size],(const char *)value,vsize);
-		size += vsize;
-		}
-	name[size++] = '\n';
-	fbw_shift_pos(resultWbs,size);
-	}
-
 // Коллбеки построчной обработки файлов
 
 int std_process(FSingSet *index,FTransformData *tdata, void *cb_param)
@@ -46,17 +30,7 @@ int std_process(FSingSet *index,FTransformData *tdata, void *cb_param)
 
 int phantom_process(FSingSet *index,FTransformData *tdata, void *cb_param)
 	{
-	if (!(tdata->operation & OP_DEL_MASK))
-		return idx_key_set_switch(index,tdata,KS_ADDED | KS_DELETED);
-
-	tdata->head.fields.diff_mark = 1;
-	if (tdata->head.fields.has_value)
-		{
-		tdata->head.fields.has_value = 0;
-		tdata->value_size = 0;
-		if (tdata->head.fields.size == 1)
-			tdata->head.fields.extra = tdata->key_rest[0];
-		}
+	tdata->head.fields.diff_mark = (tdata->operation & OP_DEL_MASK) ? 1 : 0;
 	int rv = idx_key_set_switch(index,tdata,KS_ADDED | KS_DELETED);
 	tdata->head.fields.diff_mark = 0;
 	return rv;
@@ -124,13 +98,6 @@ int multidel_phantom_process(FSingSet *index,FTransformData *tdata, void *cb_par
 	FKVList *kvlist = (FKVList *)cb_param;
 
 	tdata->head.fields.diff_mark = 1;
-	if (tdata->head.fields.has_value)
-		{
-		tdata->head.fields.has_value = 0;
-		tdata->value_size = 0;
-		if (tdata->head.fields.size == 1)
-			tdata->head.fields.extra = tdata->key_rest[0];
-		}
 	int rv = idx_key_set_switch(index,tdata,KS_ADDED | KS_DELETED);
 	tdata->head.fields.diff_mark = 0;
 
@@ -153,6 +120,20 @@ typedef struct FSMWParamTg
 	unsigned *new_counters;
 	FWriteBufferSet *resultWbs;
 	} FSMWParam;
+
+static inline void result_output_wval(const FKeyHead *head,const element_type *key_rest,const void *value, unsigned vsize,FWriteBufferSet *resultWbs)
+	{
+	char *name = fbw_get_ref(resultWbs);
+	unsigned size = cd_decode(&name[0],head,key_rest);
+	if (vsize)
+		{
+		name[size++] = '\t';
+		memcpy(&name[size],(const char *)value,vsize);
+		size += vsize;
+		}
+	name[size++] = '\n';
+	fbw_shift_pos(resultWbs,size);
+	}
 
 int parse_process_diff(FSingSet *index,FTransformData *tdata, void *cb_param) 
 	{
@@ -473,6 +454,7 @@ static inline int _init_tdata(FSingSet *kvset,FTransformData *tdata,const char *
 	tdata->value_size = vsize;
 	tdata->head.fields.chain_stop = 1;
 	tdata->head.fields.diff_mark = 0;
+	tdata->use_phantom = 0;
 	if (!key)
 		return 1;
 	int size = cd_transform(key,ksize,tdata);
