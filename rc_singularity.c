@@ -625,6 +625,7 @@ int sing_get_values_simple_n(FSingSet *kvset,const char *const *keys,const unsig
 			results[i] = RESULT_IMPOSSIBLE_KEY, vsizes[i] = 0, values[i] = NULL, tdatas[0] = NULL;
 		if (tdatas[1])
 			{
+			rest_size = vspace_size;
 			int res = results[i-1] = idx_key_get(kvset,tdatas[1],&rlock,value_space,&rest_size);
 			if (res)
 				vsizes[i-1] = ((res == SING_RESULT_SMALL_BUFFER) ? rest_size : 0), values[i-1] = NULL;
@@ -633,7 +634,7 @@ int sing_get_values_simple_n(FSingSet *kvset,const char *const *keys,const unsig
 				vsizes[i-1] = rest_size;
 				values[i-1] = value_space;
 				value_space += rest_size;
-				rest_size = vspace_size = (vspace_size - rest_size);
+				vspace_size = (vspace_size - rest_size);
 				rv++;
 				}
 			if (__builtin_expect(res < 0,0))
@@ -652,7 +653,8 @@ int sing_get_values_simple_n(FSingSet *kvset,const char *const *keys,const unsig
 	rlock.keep = 0;
 	if (tdatas[1])
 		{
-		int res = results[i-1] = idx_key_get(kvset,tdatas[1],&rlock,values[i-1],&vsizes[i-1]);
+		rest_size = vspace_size;
+		int res = results[i-1] = idx_key_get(kvset,tdatas[1],&rlock,value_space,&rest_size);
 		if (res)
 			vsizes[i-1] = ((res == SING_RESULT_SMALL_BUFFER) ? rest_size : 0), values[i-1] = NULL;
 		else

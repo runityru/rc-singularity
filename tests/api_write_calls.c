@@ -20,44 +20,48 @@
 
 int sing_add_keys_test_1(FSingSet *index,int *res_mem,element_type prep_data)
 	{
-	char *values[7] = {multi_values[0],multi_values[1],multi_values[2],multi_values[3],multi_values[4],"",""};
-	unsigned vsizes[7] = {0,0,0,0,0,1,1}; 
+	char *values[7] = {multi_values[0],multi_values[1],multi_values[2],multi_values[3],"","",multi_values[6]};
+	unsigned vsizes[7]; 
 	int results[7];
 	int i;
 
-	for (i = 0; i < 5; i++)
+	for (i = 0; i < 7; i++)
 		vsizes[i] = strlen(values[i]) + 1;
 
 	int res = sing_add_keys(index,multi_keys,7,(const void **)values,vsizes,results);
 	if (res != 5) return 1;
 
-	for (i = 1; i < 6; i++)
+	if (results[0] != SING_RESULT_KEY_PRESENT) return 1;
+	for (i = 1; i < 5; i++)
 		if (results[i]) return 1;
 
-	if (results[0] != SING_RESULT_KEY_PRESENT) return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i++] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i]) return 1;
 	return 0;
 	}
 
 int sing_add_keys_test_2(FSingSet *index,int *res_mem,element_type prep_data)
 	{
-	char *values[7] = {multi_values[0],multi_values[1],multi_values[2],multi_values[3],multi_values[4],"",""};
-	unsigned vsizes[7] = {0,0,0,0,0,1,1}; 
+	char *values[7] = {multi_values[0],multi_values[1],multi_values[2],multi_values[3],"","",multi_values[6]};
+	unsigned vsizes[7]; 
 	int results[7];
 	unsigned ksizes[7];
 	int i;
 
 	for (i = 0; i < 7; i++)
 		ksizes[i] = strlen(multi_keys[i]);
+	for (i = 0; i < 7; i++)
+		vsizes[i] = strlen(values[i]) + 1;
 
 	int res = sing_add_keys_n(index,multi_keys_long,ksizes,7,(const void **)values,vsizes,results);
 	if (res != 5) return 1;
 
-	for (i = 1; i < 6; i++)
+	if (results[0] != SING_RESULT_KEY_PRESENT) return 1;
+	for (i = 1; i < 5; i++)
 		if (results[i]) return 1;
 
-	if (results[0] != SING_RESULT_KEY_PRESENT) return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i++] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i]) return 1;
 	return 0;
 	}
 
@@ -79,28 +83,29 @@ int sing_add_keys_test_3(FSingSet *index,int *res_mem,element_type prep_data)
 
 int sing_set_keys_test_1(FSingSet *index,int *res_mem,element_type prep_data)
 	{
-	char *values[7] = {"new_val",multi_values[1],multi_values[2],multi_values[3],multi_values[4],"",""};
-	unsigned vsizes[7] = {8,0,0,0,0,1,1}; 
+	char *values[7] = {"new_val",multi_values[1],multi_values[2],multi_values[3],"","",multi_values[6]};
+	unsigned vsizes[7]; 
 	int results[7];
 	int i;
 
-	for (i = 0; i < 5; i++)
+	for (i = 0; i < 7; i++)
 		vsizes[i] = strlen(values[i]) + 1;
 
 	int res = sing_set_keys(index,multi_keys,7,(const void **)values,vsizes,results);
 	if (res != 6) return 1;
 
-	for (i = 0; i < 6; i++)
+	for (i = 0; i < 5; i++)
 		if (results[i]) return 1;
 
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i++] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i]) return 1;
 	return 0;
 	}
 
 int sing_set_keys_test_2(FSingSet *index,int *res_mem,element_type prep_data)
 	{
-	char *values[7] = {"new_val",multi_values[1],multi_values[2],multi_values[3],multi_values[4],"",""};
-	unsigned vsizes[7] = {8,0,0,0,0,1,1}; 
+	char *values[7] = {"new_val",multi_values[1],multi_values[2],multi_values[3],"","",multi_values[6]};
+	unsigned vsizes[7]; 
 	int results[7];
 	unsigned ksizes[7];
 	int i;
@@ -108,13 +113,17 @@ int sing_set_keys_test_2(FSingSet *index,int *res_mem,element_type prep_data)
 	for (i = 0; i < 7; i++)
 		ksizes[i] = strlen(multi_keys[i]);
 
+	for (i = 0; i < 7; i++)
+		vsizes[i] = strlen(values[i]) + 1;
+
 	int res = sing_set_keys_n(index,multi_keys_long,ksizes,7,(const void **)values,vsizes,results);
 	if (res != 6) return 1;
 
-	for (i = 0; i < 6; i++)
+	for (i = 0; i < 5; i++)
 		if (results[i]) return 1;
 
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i++] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i]) return 1;
 	return 0;
 	}
 
@@ -142,11 +151,12 @@ int sing_del_keys_test_1(FSingSet *index,int *res_mem,element_type prep_data)
 	int res = sing_del_keys(index,multi_keys,7,results);
 	if (res != 5) return 1;
 
-	for (i = 0; i < 5; i++)
+	for (i = 0; i < 4; i++)
 		if (results[i]) return 1;
 
-	if (results[5] != SING_RESULT_KEY_NOT_FOUND)	return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i++] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (results[i++] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i]) return 1;
 	return 0;
 	}
 
@@ -162,11 +172,12 @@ int sing_del_keys_test_2(FSingSet *index,int *res_mem,element_type prep_data)
 	int res = sing_del_keys_n(index,multi_keys,ksizes,7,results);
 	if (res != 5) return 1;
 
-	for (i = 0; i < 5; i++)
+	for (i = 0; i < 4; i++)
 		if (results[i]) return 1;
 
-	if (results[5] != SING_RESULT_KEY_NOT_FOUND)	return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i++] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (results[i++] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i]) return 1;
 	return 0;
 	}
 

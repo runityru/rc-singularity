@@ -68,16 +68,20 @@ element_type one_key_value_prep(FSingSet *index,int *res_mem)
 	return 0;
 	}
 
-const char *multi_keys[7] = {"key1","key22","key333","key444","key5555","key66666","key@"};
-const char *multi_keys_long[7] = {"key1long","key22long","key333long","key4444long","key55555long","key666666long","key@long"};
-char *multi_values[5] = {"some string 1","some string 22","some string 333","some string 4444","some string 55555"};
+const char *multi_keys[7] = {"key1","key22","key333","key444","key66666","key@","key5555"};
+const char *multi_keys_long[7] = {"key1long","key22long","key333long","key4444long","key666666long","key@long","key55555long"};
+char *multi_values[7] = {"some string 1","some string 22","some string 333","some string 4444",NULL,NULL,"some string 55555"};
 
 element_type many_key_value_prep(FSingSet *index,int *res_mem)
 	{
 	int i;
-	for(i = 0; i < 5; i++)
+	for(i = 0; i < 7; i++)
+		{
+		if (!multi_values[i])
+			continue;
 		if (sing_set_key(index,multi_keys[i],multi_values[i],strlen(multi_values[i]) + 1))
 			return 1;
+		}
 	return 0;
 	}
 

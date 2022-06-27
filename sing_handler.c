@@ -157,7 +157,7 @@ exit:
 		}
 	
 	if (!rv && source_replacement)
-		rename(config->reset_data.filename,source_replacement);
+		rename(source_replacement,config->reset_data.filename);
 
 	if (shmIndex)
 		{

@@ -114,17 +114,23 @@ int sing_get_values_cb_test_1(FSingSet *index,int *res_mem,element_type prep_dat
 	int res = sing_get_values_cb(index,multi_keys,7,test_allocator,(void **)vstore,vsizes,results);
 	if (res != 5) return 1;
 
-	for (i = 0; i < 5; i++)
+	for (i = 0; i < 4; i++)
 		{
 		if (results[i]) return 1;
 		if (vsizes[i] != strlen(multi_values[i]) + 1) return 1;
 		if (strcmp(multi_values[i],vstore[i])) return 1;
 		free(vstore[i]);
 		}
-	if (results[5] != SING_RESULT_KEY_NOT_FOUND)	return 1;
-	if (vsizes[5] != 0 || vstore[5] != NULL) return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
-	if (vsizes[6] != 0 || vstore[6] != NULL) return 1;
+	if (results[i] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (vsizes[i] != 0 || vstore[i] != NULL) return 1;
+	i++;
+	if (results[i] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (vsizes[i] != 0 || vstore[i] != NULL) return 1;
+	i++;
+	if (results[i]) return 1;
+	if (vsizes[i] != strlen(multi_values[i]) + 1) return 1;
+	if (strcmp(multi_values[i],vstore[i])) return 1;
+	free(vstore[6]);
 	return 0;
 	}
 
@@ -141,17 +147,23 @@ int sing_get_values_cb_test_2(FSingSet *index,int *res_mem,element_type prep_dat
 	int res = sing_get_values_cb_n(index,multi_keys_long,ksizes,7,test_allocator,(void **)vstore,vsizes,results);
 	if (res != 5) return 1;
 
-	for (i = 0; i < 5; i++)
+	for (i = 0; i < 4; i++)
 		{
 		if (results[i]) return 1;
 		if (vsizes[i] != strlen(multi_values[i]) + 1) return 1;
 		if (strcmp(multi_values[i],vstore[i])) return 1;
 		free(vstore[i]);
 		}
-	if (results[5] != SING_RESULT_KEY_NOT_FOUND)	return 1;
-	if (vsizes[5] != 0 || vstore[5] != NULL) return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
-	if (vsizes[6] != 0 || vstore[6] != NULL) return 1;
+	if (results[i] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (vsizes[i] != 0 || vstore[i] != NULL) return 1;
+	i++;
+	if (results[i] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (vsizes[i] != 0 || vstore[i] != NULL) return 1;
+	i++;
+	if (results[i]) return 1;
+	if (vsizes[i] != strlen(multi_values[i]) + 1) return 1;
+	if (strcmp(multi_values[i],vstore[i])) return 1;
+	free(vstore[i]);
 	return 0;
 	}
 
@@ -263,8 +275,8 @@ int sing_get_value_test_6(FSingSet *index,int *res_mem,element_type prep_data)
 int sing_get_values_test_1(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	char vbuf[128];
-	void *vstore[7] = {&vbuf[0],&vbuf[20],&vbuf[40],&vbuf[60],&vbuf[120],&vbuf[80],&vbuf[100]};
-	unsigned vsizes[7] = {20,20,20,20,8,20,20};
+	void *vstore[7] = {&vbuf[0],&vbuf[20],&vbuf[40],&vbuf[60],&vbuf[80],&vbuf[100],&vbuf[120]};
+	unsigned vsizes[7] = {20,20,20,20,20,20,8};
 	int results[7];
 	int i;
 
@@ -277,22 +289,23 @@ int sing_get_values_test_1(FSingSet *index,int *res_mem,element_type prep_data)
 		if (vsizes[i] != strlen(multi_values[i]) + 1) return 1;
 		if (strcmp(multi_values[i],&vbuf[i * 20])) return 1;
 		}
-	if (results[4] != SING_RESULT_SMALL_BUFFER) return 1;
-	if (vsizes[4] != strlen(multi_values[4]) + 1) return 1;
-	if (strncmp(multi_values[4],&vbuf[120],8)) return 1;
-
-	if (results[5] != SING_RESULT_KEY_NOT_FOUND)	return 1;
-	if (vsizes[5] != 0) return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
-	if (vsizes[6] != 0) return 1;
+	if (results[i] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (vsizes[i] != 0) return 1;
+	i++;
+	if (results[i] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (vsizes[i] != 0) return 1;
+	i++;
+	if (results[i] != SING_RESULT_SMALL_BUFFER) return 1;
+	if (vsizes[i] != strlen(multi_values[i]) + 1) return 1;
+	if (strncmp(multi_values[i],&vbuf[120],8)) return 1;
 	return 0;
 	}
 
 int sing_get_values_test_2(FSingSet *index,int *res_mem,element_type prep_data)
 	{
 	char vbuf[128];
-	void *vstore[7] = {&vbuf[0],&vbuf[20],&vbuf[40],&vbuf[60],&vbuf[120],&vbuf[80],&vbuf[100]};
-	unsigned vsizes[7] = {20,20,20,20,8,20,20};
+	void *vstore[7] = {&vbuf[0],&vbuf[20],&vbuf[40],&vbuf[60],&vbuf[80],&vbuf[100],&vbuf[120]};
+	unsigned vsizes[7] = {20,20,20,20,20,20,8};
 	unsigned ksizes[7];
 	int results[7];
 	int i;
@@ -309,14 +322,15 @@ int sing_get_values_test_2(FSingSet *index,int *res_mem,element_type prep_data)
 		if (vsizes[i] != strlen(multi_values[i]) + 1) return 1;
 		if (strcmp(multi_values[i],vstore[i])) return 1;
 		}
-	if (results[4] != SING_RESULT_SMALL_BUFFER) return 1;
-	if (vsizes[4] != strlen(multi_values[4]) + 1) return 1;
-	if (strncmp(multi_values[4],&vbuf[120],8)) return 1;
-
-	if (results[5] != SING_RESULT_KEY_NOT_FOUND)	return 1;
-	if (vsizes[5] != 0) return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
-	if (vsizes[6] != 0) return 1;
+	if (results[i] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (vsizes[i] != 0) return 1;
+	i++;
+	if (results[i] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (vsizes[i] != 0) return 1;
+	i++;
+	if (results[i] != SING_RESULT_SMALL_BUFFER) return 1;
+	if (vsizes[i] != strlen(multi_values[i]) + 1) return 1;
+	if (strncmp(multi_values[i],&vbuf[120],8)) return 1;
 	return 0;
 	}
 
@@ -357,14 +371,13 @@ int sing_get_values_simple_test_1(FSingSet *index,int *res_mem,element_type prep
 	if (results[3] != SING_RESULT_SMALL_BUFFER) return 1;
 	if (vsizes[3] != strlen(multi_values[3]) + 1) return 1;
 	if (vstore[3] != NULL) return 1;
-	if (results[4] != SING_RESULT_SMALL_BUFFER) return 1;
-	if (vsizes[4] != strlen(multi_values[4]) + 1) return 1;
-	if (vstore[4] != NULL) return 1;
-
-	if (results[5] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (results[4] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (vsizes[4] != 0 || vstore[4] != NULL) return 1;
+	if (results[5] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
 	if (vsizes[5] != 0 || vstore[5] != NULL) return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
-	if (vsizes[6] != 0 || vstore[6] != NULL) return 1;
+	if (results[6] != SING_RESULT_SMALL_BUFFER) return 1;
+	if (vsizes[6] != strlen(multi_values[6]) + 1) return 1;
+	if (vstore[6] != NULL) return 1;
 	return 0;
 	}
 
@@ -392,14 +405,15 @@ int sing_get_values_simple_test_2(FSingSet *index,int *res_mem,element_type prep
 	if (results[3] != SING_RESULT_SMALL_BUFFER) return 1;
 	if (vsizes[3] != strlen(multi_values[3]) + 1) return 1;
 	if (vstore[3] != NULL) return 1;
-	if (results[4] != SING_RESULT_SMALL_BUFFER) return 1;
-	if (vsizes[4] != strlen(multi_values[4]) + 1) return 1;
-	if (vstore[4] != NULL) return 1;
 
-	if (results[5] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (results[4] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (vsizes[4] != 0 || vstore[4] != NULL) return 1;
+	if (results[5] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
 	if (vsizes[5] != 0 || vstore[5] != NULL) return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
-	if (vsizes[6] != 0 || vstore[6] != NULL) return 1;
+
+	if (results[6] != SING_RESULT_SMALL_BUFFER) return 1;
+	if (vsizes[6] != strlen(multi_values[6]) + 1) return 1;
+	if (vstore[6] != NULL) return 1;
 	return 0;
 	}
 
@@ -429,16 +443,20 @@ int sing_get_values_same_test_1(FSingSet *index,int *res_mem,element_type prep_d
 	int res = sing_get_values_same(index,multi_keys,7,(void *)vbuf,4,results);
 	if (res != 5) return 1;
 
-	for (i = 0; i < 5; i++)
+	for (i = 0; i < 4; i++)
 		{
 		if (results[i]) return 1;
 		if (strncmp(multi_values[i],&vbuf[i * 4],4)) return 1;
 		}
 
-	if (results[5] != SING_RESULT_KEY_NOT_FOUND)	return 1;
-	if (vbuf[5 * 4] != 0 || vbuf[5 * 4 + 1] != 0 || vbuf[5 * 4 + 2] != 0 || vbuf[5 * 4 + 3] != 0) return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
-	if (vbuf[6 * 4] != 0 || vbuf[6 * 4 + 1] != 0 || vbuf[6 * 4 + 2] != 0 || vbuf[6 * 4 + 3] != 0) return 1;
+	if (results[i] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (vbuf[i * 4] != 0 || vbuf[i * 4 + 1] != 0 || vbuf[i * 4 + 2] != 0 || vbuf[i * 4 + 3] != 0) return 1;
+	i++;
+	if (results[i] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (vbuf[i * 4] != 0 || vbuf[i * 4 + 1] != 0 || vbuf[i * 4 + 2] != 0 || vbuf[i * 4 + 3] != 0) return 1;
+	i++;
+	if (results[i]) return 1;
+	if (strncmp(multi_values[i],&vbuf[i * 4],4)) return 1;
 	return 0;
 	}
 
@@ -455,16 +473,20 @@ int sing_get_values_same_test_2(FSingSet *index,int *res_mem,element_type prep_d
 	int res = sing_get_values_same_n(index,multi_keys,ksizes,7,(void *)vbuf,4,results);
 	if (res != 5) return 1;
 
-	for (i = 0; i < 5; i++)
+	for (i = 0; i < 4; i++)
 		{
 		if (results[i]) return 1;
 		if (strncmp(multi_values[i],&vbuf[i * 4],4)) return 1;
 		}
 
-	if (results[5] != SING_RESULT_KEY_NOT_FOUND)	return 1;
-	if (vbuf[5 * 4] != 0 || vbuf[5 * 4 + 1] != 0 || vbuf[5 * 4 + 2] != 0 || vbuf[5 * 4 + 3] != 0) return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
-	if (vbuf[6 * 4] != 0 || vbuf[6 * 4 + 1] != 0 || vbuf[6 * 4 + 2] != 0 || vbuf[6 * 4 + 3] != 0) return 1;
+	if (results[i] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (vbuf[i * 4] != 0 || vbuf[i * 4 + 1] != 0 || vbuf[i * 4 + 2] != 0 || vbuf[i * 4 + 3] != 0) return 1;
+	i++;
+	if (results[i] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (vbuf[i * 4] != 0 || vbuf[i * 4 + 1] != 0 || vbuf[i * 4 + 2] != 0 || vbuf[i * 4 + 3] != 0) return 1;
+	i++;
+	if (results[i]) return 1;
+	if (strncmp(multi_values[i],&vbuf[i * 4],4)) return 1;
 	return 0;
 	}
 
@@ -528,11 +550,12 @@ int sing_keys_present_test_1(FSingSet *index,int *res_mem,element_type prep_data
 	int res = sing_keys_present(index,multi_keys,7,results);
 	if (res != 5) return 1;
 
-	for (i = 0; i < 5; i++)
+	for (i = 0; i < 4; i++)
 		if (results[i]) return 1;
 
-	if (results[5] != SING_RESULT_KEY_NOT_FOUND)	return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i++] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (results[i++] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i]) return 1;
 	return 0;
 	}
 
@@ -548,11 +571,12 @@ int sing_keys_present_test_2(FSingSet *index,int *res_mem,element_type prep_data
 	int res = sing_keys_present_n(index,multi_keys,ksizes,7,results);
 	if (res != 5) return 1;
 
-	for (i = 0; i < 5; i++)
+	for (i = 0; i < 4; i++)
 		if (results[i]) return 1;
 
-	if (results[5] != SING_RESULT_KEY_NOT_FOUND)	return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i++] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (results[i++] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i]) return 1;
 	return 0;
 	}
 
@@ -615,8 +639,8 @@ int sing_value_equal_test_6(FSingSet *index,int *res_mem,element_type prep_data)
 
 int sing_values_equal_test_1(FSingSet *index,int *res_mem,element_type prep_data)
 	{
-	char *values[7] = {multi_values[0],multi_values[1],multi_values[2],multi_values[3],"differ_value","",""};
-	unsigned vsizes[7] = {0,0,0,0,13,1,1}; 
+	char *values[7] = {multi_values[0],multi_values[1],multi_values[2],multi_values[3],"","","differ_value"};
+	unsigned vsizes[7] = {0,0,0,0,1,1,13}; 
 	int results[7];
 	int i;
 
@@ -629,16 +653,16 @@ int sing_values_equal_test_1(FSingSet *index,int *res_mem,element_type prep_data
 	for (i = 0; i < 4; i++)
 		if (results[i]) return 1;
 
-	if (results[4] != SING_RESULT_VALUE_DIFFER) return 1;
-	if (results[5] != SING_RESULT_KEY_NOT_FOUND)	return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i++] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (results[i++] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i] != SING_RESULT_VALUE_DIFFER) return 1;
 	return 0;
 	}
 
 int sing_values_equal_test_2(FSingSet *index,int *res_mem,element_type prep_data)
 	{
-	char *values[7] = {multi_values[0],multi_values[1],multi_values[2],multi_values[3],"differ_value","",""};
-	unsigned vsizes[7] = {0,0,0,0,13,1,1}; 
+	char *values[7] = {multi_values[0],multi_values[1],multi_values[2],multi_values[3],"","","differ_value"};
+	unsigned vsizes[7] = {0,0,0,0,1,1,13}; 
 	int results[7];
 	unsigned ksizes[7];
 	int i;
@@ -655,15 +679,15 @@ int sing_values_equal_test_2(FSingSet *index,int *res_mem,element_type prep_data
 	for (i = 0; i < 4; i++)
 		if (results[i]) return 1;
 
-	if (results[4] != SING_RESULT_VALUE_DIFFER) return 1;
-	if (results[5] != SING_RESULT_KEY_NOT_FOUND)	return 1;
-	if (results[6] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i++] != SING_RESULT_KEY_NOT_FOUND)	return 1;
+	if (results[i++] != SING_RESULT_IMPOSSIBLE_KEY) return 1;
+	if (results[i] != SING_RESULT_VALUE_DIFFER) return 1;
 	return 0;
 	}
 
 int sing_values_equal_test_3(FSingSet *index,int *res_mem,element_type prep_data)
 	{
-	char *values[7] = {multi_values[0],multi_values[1],multi_values[2],multi_values[3],"differ_value","",""};
+	char *values[7] = {multi_values[0],multi_values[1],multi_values[2],multi_values[3],"","","differ_value"};
 	unsigned vsizes[7] = {0,0,0,0,13,1,1}; 
 	int results[7];
 

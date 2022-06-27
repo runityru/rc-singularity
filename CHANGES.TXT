@@ -3,10 +3,12 @@ Major - data store format
 Minor - incompatible API changes
 Release - fixes, performance improvement, API additions
 
-1.0.0 - Fixed work with phantom values. Key now can containt both phantom and normal values, phantom stored in extra_bytes. In this case
+0.9.10 - Fixed work with phantom values. Key now can containt both phantom and normal values, phantom stored in extra_bytes. In this case
         both values has phantom flag setted. Deleted key with no actual value still marked with diff_mark. This allow concatenation of
         diffs without overwriting changes. Flag use_phantom in tdata allow overwrite phantom behavior and perform normal deleting or replacing
         phantom keys
+        Fixed bug in get_values_simple. Tests updated.
+        Fixed bug in sing_handler in diff with replace operation
 
 0.9.9 - Fixed issues with incosistent reading and writing during idx_revert. 
         SING_LM_NONE now has no write locks at all, but SING_LM_FAST has normal write lock. sing_lockRW deleted, because it is unsafe. 
