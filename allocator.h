@@ -22,14 +22,14 @@
 typedef struct FValueHeadTg
 	{
 	element_type extra_bytes: LOG_BIN_MACRO(EXTRA_BYTES_COUNT);	// Added bytes (phantom value and padding) (up to 64K)
-	element_type size_e: VALUE_SIZE_WIDTH; // Max size in elements (15)
-	element_type phantom: 1; // Deleted value present. Since phantom value can be null, last bit is non-empty anyway
+	element_type size_e: VALUE_SIZE_WIDTH; // Size in elements (15), header excluded
+	element_type phantom: 1; // Setted both in normal and deleted values if deleted present. Since phantom value can be null, last bit is non-empty anyway
 	} FValueHead;
 	
 typedef union FValueHeadGeneralTg
 	{
-	FValueHead fields;   // Поделенные на поля
 	element_type whole;
+	FValueHead fields;   // Поделенные на поля
 	} FValueHeadGeneral;
 	
 #define VALUE_HEAD_SIZE (sizeof(FValueHead) / ELEMENT_SIZE + (sizeof(FValueHead) % ELEMENT_SIZE) ? 1 : 0)
@@ -44,7 +44,7 @@ typedef union FValueHeadGeneralTg
 // Value size in bytes
 #define VALUE_SIZE_BYTES(A) ((A)->size_e * ELEMENT_SIZE - (A)->extra_bytes)
 // Phantom value
-#define VALUE_PHANTOM_HEAD(A) (&((element_type *)(A))[((A)->size_e - (A)->extra_bytes / ELEMENT_SIZE)])
+#define VALUE_PHANTOM_HEAD(A) (&((element_type *)(A))[VALUE_HEAD_SIZE + (A)->size_e - (A)->extra_bytes / ELEMENT_SIZE])
 
 typedef struct
 	{

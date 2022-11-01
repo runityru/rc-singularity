@@ -28,7 +28,7 @@ static inline void pchain_init(FProcessChain *pchain, unsigned diff_mark)
 		{
 		pchain->tdata[i].value_source = pchain->values[i];
 		pchain->tdata[i].head.fields.chain_stop = 1;
-		pchain->tdata[i].head.fields.diff_mark = diff_mark;
+		pchain->tdata[i].head.fields.diff_or_phantom_mark = diff_mark;
 		pchain->tdata[i].use_phantom = 0;
 		}
 	pchain->ctdata = 0; 
@@ -279,7 +279,7 @@ int pl_pipeline1(FSingSet *index,CInitSource init_cb,CGetFromSource get_cb, void
 		{
 		tdata[i].value_source = &values[i * CACHE_ALIGNED_CHAR(MAX_VALUE_SOURCE)];
 		tdata[i].head.fields.chain_stop = 1;
-		tdata[i].head.fields.diff_mark = diff_mark;
+		tdata[i].head.fields.diff_or_phantom_mark = diff_mark;
 		tdata[i].use_phantom = 0;
 		}
 	

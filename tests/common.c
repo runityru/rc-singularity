@@ -25,7 +25,7 @@ int collision_search(unsigned hashtable_size,unsigned needed_hash,unsigned neede
 	tdata.value_source = NULL;
 	tdata.use_phantom = 0;
 	tdata.head.fields.chain_stop = 1;
-	tdata.head.fields.diff_mark = 0;
+	tdata.head.fields.diff_or_phantom_mark = 0;
 
 	for (i = 0; i < 26; i++)
 		letters[i] = 'a' + i;
@@ -60,6 +60,7 @@ int collision_search(unsigned hashtable_size,unsigned needed_hash,unsigned neede
 
 const char * const single_key = "key1";
 const char * const single_value = "oldvalue";
+const char * const single_phantom = "phantomvalue";
 
 element_type one_key_value_prep(FSingSet *index,int *res_mem)
 	{
@@ -68,20 +69,42 @@ element_type one_key_value_prep(FSingSet *index,int *res_mem)
 	return 0;
 	}
 
-const char *multi_keys[7] = {"key1","key22","key333","key444","key66666","key@","key5555"};
-const char *multi_keys_long[7] = {"key1long","key22long","key333long","key4444long","key666666long","key@long","key55555long"};
-char *multi_values[7] = {"some string 1","some string 22","some string 333","some string 4444",NULL,NULL,"some string 55555"};
+element_type one_key_phantom_prep(FSingSet *index,int *res_mem)
+	{
+	if (sing_set_key(index,single_key,(void *)single_phantom,strlen(single_phantom) + 1))
+		return 1;
+	if (sing_del_key(index,single_key))
+		return 1;
+	return 0;
+	}
 
-element_type many_key_value_prep(FSingSet *index,int *res_mem)
+element_type one_key_both_prep(FSingSet *kvset,int *res_mem)
+	{
+	if (sing_set_key(kvset,single_key,(void *)single_phantom,strlen(single_phantom) + 1))
+		return 1;
+	if (sing_del_key(kvset,single_key))
+		return 1;
+	if (sing_set_key(kvset,single_key,(void *)single_value,strlen(single_value) + 1))
+		return 1;
+	return 0;
+	}
+
+const char *multi_keys[TEST_MULTIKEYS_CNT] = {"key1","key22","key333","key444","key66666","key@","keydel","key5555"};
+const char *multi_keys_long[TEST_MULTIKEYS_CNT] = {"key1long","key22long","key333long","key4444long","key666666long","key@long","keydellong","key55555long"};
+char *multi_values[TEST_MULTIKEYS_CNT] = {"some string 1","some string 22","some string 333","some string 4444",NULL,NULL,"deleted key","some string 55555"};
+
+element_type many_key_value_prep(FSingSet *kvset,int *res_mem)
 	{
 	int i;
-	for(i = 0; i < 7; i++)
+	for(i = 0; i < TEST_MULTIKEYS_CNT; i++)
 		{
 		if (!multi_values[i])
 			continue;
-		if (sing_set_key(index,multi_keys[i],multi_values[i],strlen(multi_values[i]) + 1))
+		if (sing_set_key(kvset,multi_keys[i],multi_values[i],strlen(multi_values[i]) + 1))
 			return 1;
 		}
+	if (sing_del_key(kvset,multi_keys[6]))
+		return 1;
 	return 0;
 	}
 

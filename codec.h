@@ -40,15 +40,15 @@ typedef struct FTransformDataTg
 	unsigned trans_key_size;			// Число символов в трансформированном ключе. Заполняется в cd_transform
 	unsigned value_size;					// Размер данных в value_source. Заполняется перед вызовом cd_transform
 	unsigned short operation;			// Операция с ключом. Заполняется в вызове cd_transform
-	unsigned short use_phantom;		// Обрабатывать фантомный ключ как обычный
+	unsigned short use_phantom;		// Для чтения - читать фантомный ключ/значение. Для записи - изменять фантомный ключ, не изменяя обычный
 	unsigned char *value_source;		// Ссылка на данные в источнике. Заполняется перед вызовом cd_transform
 	FKeyHeadGeneral head;				// Заголовок ключа. Копируется при успешном добавлении
 // 32 байта для 32-х битной версии
 	element_type *chain_idx_ref;		// Ссылка на ссылку на продолжение цепочки. Инитится в cd_transform. Заполняется в idx_key_try_set
-	element_type old_key_rest;			// Индекс старого тела ключа при удалении
-	unsigned old_key_rest_size;		// Размер старого тела ключа при удалении
-	void *old_value;						// Ссылка на старое значение
-	uint32_t old_value_size;			// Размер старого значения
+	element_type old_key_rest;			// Old body index for deletion after possible output
+	unsigned old_key_rest_size;		// Old body size
+	void *old_value;						// Link to old value, used only for output in diffs before old body deletion
+	uint32_t old_value_size;			// Old value size
 	uint32_t res_num;						// Номер в массиве результатов для множественной обработки
 // 64 байта для 32-х битной версии
 	element_type key_rest[CACHE_ALIGNED_MAX_KEY_SIZE];				// Место для битового сжатия ключа

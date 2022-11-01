@@ -24,7 +24,7 @@ void test_make_tdata(FSingSet *index,char *key_source,int vsize,unsigned char *v
 	tdata->value_source = value;
 	tdata->value_size = vsize;
 	tdata->head.fields.chain_stop = 1;
-	tdata->head.fields.diff_mark = (flags & TF_SET_PHANTOM) ? 1 : 0;
+	tdata->head.fields.diff_or_phantom_mark = (flags & TF_SET_PHANTOM) ? 1 : 0;
 	tdata->use_phantom = (flags & TF_USE_PHANTOM) ? 1 : 0;
 	cd_transform(key_source,MAX_KEY_SOURCE,tdata);
 	tdata->hash = index->hashtable_size;
@@ -46,7 +46,7 @@ void test_process_res(FSingSet *index,int res,FTransformData *tdata)
 
 int test_set_key(FSingSet *index,char *key_source,int vsize,unsigned char *value,unsigned flags)
 	{
-	FTransformData tdata;
+	FTransformData tdata = {0};
 
 	test_make_tdata(index,key_source,vsize,value,&tdata,flags);
 	int rv = idx_key_try_set(index,&tdata,KS_ADDED | KS_DELETED);
@@ -66,6 +66,15 @@ int test_del_key(FSingSet *index,char *key_source,unsigned flags)
 	if (rv & KS_CHANGED)
 		lck_memoryUnlock(index);
 	return rv;
+	}
+
+int test_get_key(FSingSet *index,char *key_source,unsigned *value_dst_size,void *value_dst,unsigned flags)
+	{
+	FTransformData tdata = {0};
+	FReaderLock rlock = READER_LOCK_INIT;
+
+	test_make_tdata(index,key_source,0,NULL,&tdata,flags);
+   return idx_key_get(index,&tdata,&rlock,value_dst,value_dst_size);
 	}
 
 // Размещение тела ключа (_alloc_and_set_rest)
@@ -159,6 +168,7 @@ int replace_value_test_2_3(FSingSet *index,int *res_mem,element_type prep_data)
 // 2_2 В старом было нормальное значение, и было удаленное
 // 2_3 В старом было не было значения
 // 2_4 Значение совпадает со старым
+// 2_5 В старом было нормальное значение, заменяем на пустое
 // (3) Замена удаленного ключа на обычный
 // 3_1 В удаленном было значение
 // 3_2 В удаленном не было значения
@@ -166,8 +176,10 @@ int replace_value_test_2_3(FSingSet *index,int *res_mem,element_type prep_data)
 // 4_1 Значения не было
 // 4_2 Было значение, но не было фантомного
 // 4_3 Фантомное пустое, ключ длинный
-// 4_4 Фантомное пустое, ключ в 1 элемент
+// 4_4_1 Фантомное пустое, ключ в 1 элемент, есть значение в удаленном
+// 4_4_2 Фантомное пустое, ключ в 1 элемент, нет значения в удаленном
 // 4_5 Фантомное пустое, ключ в 0 элемент
+// 4_6 Фантомное не пустое
 
 element_type replace_phantom_value_prep_1(FSingSet *index,int *res_mem)
 	{
@@ -179,7 +191,15 @@ int replace_phantom_value_test_1(FSingSet *index,int *res_mem,element_type prep_
 	{
 	int val = 0;
 	int rv = test_set_key(index,"abcde",4,(unsigned char *)&val,TF_SET_PHANTOM);
-	return (rv == KS_SUCCESS) ? 0 : 1;
+	if (rv != KS_SUCCESS)
+		return 1;
+	unsigned vsize = 4;
+	if (test_get_key(index,"abcde",&vsize,&val,0) != RESULT_KEY_NOT_FOUND)
+		return 2;
+	vsize = 4;
+	if (test_get_key(index,"abcde",&vsize,&val,TF_USE_PHANTOM) || vsize)
+		return 3;
+	return 0;
 	}
 
 element_type replace_phantom_value_prep_2_1(FSingSet *index,int *res_mem)
@@ -193,7 +213,16 @@ int replace_phantom_value_test_2_1(FSingSet *index,int *res_mem,element_type pre
 	{
 	int val = 1;
 	int rv = test_set_key(index,"abcde",4,(unsigned char *)&val,0);
-	return (rv & KS_CHANGED) ? 0 : 1;
+	if (!(rv & KS_CHANGED))
+		return 1;
+	unsigned vsize = 4;
+	val = 2;
+	if (test_get_key(index,"abcde",&vsize,&val,0) || val != 1)
+		return 2;
+	vsize = 4, val = 2;
+	if (test_get_key(index,"abcde",&vsize,&val,TF_USE_PHANTOM) || val != 0)
+		return 3;
+	return 0;
 	}
 
 element_type replace_phantom_value_prep_2_2(FSingSet *index,int *res_mem)
@@ -208,7 +237,16 @@ int replace_phantom_value_test_2_2(FSingSet *index,int *res_mem,element_type pre
 	{
 	int val = 1;
 	int rv = test_set_key(index,"abcde",4,(unsigned char *)&val,0);
-	return (rv & KS_CHANGED) ? 0 : 1;
+	if (!(rv & KS_CHANGED))
+		return 1;
+	unsigned vsize = 4;
+	val = 2;
+	if (test_get_key(index,"abcde",&vsize,&val,0) || val != 1)
+		return 2;
+	vsize = 4;
+	if (test_get_key(index,"abcde",&vsize,&val,TF_USE_PHANTOM) || vsize)
+		return 3;
+	return 0;
 	}
 
 element_type replace_phantom_value_prep_2_3(FSingSet *index,int *res_mem)
@@ -219,9 +257,18 @@ element_type replace_phantom_value_prep_2_3(FSingSet *index,int *res_mem)
 
 int replace_phantom_value_test_2_3(FSingSet *index,int *res_mem,element_type prep_data)
 	{
-	int val = 0;
+	int val = 1;
 	int rv = test_set_key(index,"abcde",4,(unsigned char *)&val,0);
-	return (rv & KS_CHANGED) ? 0 : 1;
+	if (!(rv & KS_CHANGED))
+		return 1;
+	unsigned vsize = 4;
+	val = 2;
+	if (test_get_key(index,"abcde",&vsize,&val,0) || val != 1)
+		return 2;
+	vsize = 4;
+	if (test_get_key(index,"abcde",&vsize,&val,TF_USE_PHANTOM) || vsize)
+		return 3;
+	return 0;
 	}
 
 element_type replace_phantom_value_prep_2_4(FSingSet *index,int *res_mem)
@@ -235,7 +282,37 @@ int replace_phantom_value_test_2_4(FSingSet *index,int *res_mem,element_type pre
 	{
 	int val = 0;
 	int rv = test_set_key(index,"abcde",4,(unsigned char *)&val,0);
-	return (rv & KS_CHANGED) ? 1 : 0;
+	if (rv & KS_CHANGED)
+		return 1;
+	unsigned vsize = 4;
+	val = 2;
+	if (test_get_key(index,"abcde",&vsize,&val,0) || val != 0)
+		return 2;
+	vsize = 4;
+	if (test_get_key(index,"abcde",&vsize,&val,TF_USE_PHANTOM) != RESULT_KEY_NOT_FOUND)
+		return 3;
+	return 0;
+	}
+
+element_type replace_phantom_value_prep_2_5(FSingSet *index,int *res_mem)
+	{
+	int val = 1;
+	test_set_key(index,"abcde",4,(unsigned char *)&val,0);
+	return 0;
+	}
+
+int replace_phantom_value_test_2_5(FSingSet *index,int *res_mem,element_type prep_data)
+	{
+	int rv = test_set_key(index,"abcde",0,NULL,0);
+	if (!(rv & KS_CHANGED))
+		return 1;
+	unsigned vsize = 4,val = 2;
+	if (test_get_key(index,"abcde",&vsize,&val,0) || vsize)
+		return 2;
+	vsize = 4, val = 2;
+	if (test_get_key(index,"abcde",&vsize,&val,TF_USE_PHANTOM) || vsize != 4 || val != 1)
+		return 3;
+	return 0;
 	}
 
 element_type replace_phantom_value_prep_3_1(FSingSet *index,int *res_mem)
@@ -308,11 +385,34 @@ element_type replace_phantom_value_prep_4_4(FSingSet *index,int *res_mem)
 	return 0;
 	}
 
-int replace_phantom_value_test_4_4(FSingSet *index,int *res_mem,element_type prep_data)
+int replace_phantom_value_test_4_4_1(FSingSet *index,int *res_mem,element_type prep_data)
 	{ 
 	int val = 0;
 	int rv = test_set_key(index,"abcdef",4,(unsigned char *)&val,TF_SET_PHANTOM);
-	return (rv & KS_CHANGED) ? 0 : 1;
+	if (!(rv & KS_CHANGED))
+		return 1;
+	unsigned vsize = 4;
+	if (test_get_key(index,"abcdef",&vsize,&val,0) != RESULT_KEY_NOT_FOUND)
+		return 2;
+	vsize = 4;
+	if (test_get_key(index,"abcdef",&vsize,&val,TF_USE_PHANTOM) || vsize)
+		return 3;
+	return 0;
+	}
+
+int replace_phantom_value_test_4_4_2(FSingSet *index,int *res_mem,element_type prep_data)
+	{ 
+	int val = 0;
+	int rv = test_set_key(index,"abcdef",0,NULL,TF_SET_PHANTOM);
+	if (!(rv & KS_CHANGED))
+		return 1;
+	unsigned vsize = 4;
+	if (test_get_key(index,"abcdef",&vsize,&val,0) != RESULT_KEY_NOT_FOUND)
+		return 2;
+	vsize = 4;
+	if (test_get_key(index,"abcdef",&vsize,&val,TF_USE_PHANTOM) || vsize)
+		return 3;
+	return 0;
 	}
 
 element_type replace_phantom_value_prep_4_5(FSingSet *index,int *res_mem)
@@ -327,7 +427,38 @@ int replace_phantom_value_test_4_5(FSingSet *index,int *res_mem,element_type pre
 	{ 
 	int val = 0;
 	int rv = test_set_key(index,"abc",4,(unsigned char *)&val,TF_SET_PHANTOM);
-	return (rv & KS_CHANGED) ? 0 : 1;
+	if (!(rv & KS_CHANGED))
+		return 1;
+	unsigned vsize = 4;
+	if (test_get_key(index,"abc",&vsize,&val,0) != RESULT_KEY_NOT_FOUND)
+		return 2;
+	vsize = 4;
+	if (test_get_key(index,"abc",&vsize,&val,TF_USE_PHANTOM) || vsize)
+		return 3;
+	return 0;
+	}
+
+element_type replace_phantom_value_prep_4_6(FSingSet *index,int *res_mem)
+	{
+	int val = 5;
+	test_set_key(index,"abc",4,(unsigned char *)&val,0);
+	test_set_key(index,"abc",0,NULL,0);
+	return 0;
+	}
+
+int replace_phantom_value_test_4_6(FSingSet *index,int *res_mem,element_type prep_data)
+	{ 
+	int val = 0;
+	int rv = test_set_key(index,"abc",4,(unsigned char *)&val,TF_SET_PHANTOM);
+	if (!(rv & KS_CHANGED))
+		return 1;
+	unsigned vsize = 4;
+	if (test_get_key(index,"abc",&vsize,&val,0) != RESULT_KEY_NOT_FOUND)
+		return 2;
+	vsize = 4;
+	if (test_get_key(index,"abc",&vsize,&val,TF_USE_PHANTOM) || vsize != 4 || val != 5)
+		return 3;
+	return 0;
 	}
 
 // Попытка добавления ключа в хештаблицу (idx_key_try_set)
@@ -713,23 +844,29 @@ int main(void)
 		{"alloc_rest_1_2",NULL,alloc_rest_test_1_2,LM_NONE,0},
 		{"alloc_rest_2_1",NULL,alloc_rest_test_2_1,LM_NONE,0},
 		{"alloc_rest_2_2",NULL,alloc_rest_test_2_2,LM_NONE,0},
+
 		{"replace_value_1_1",replace_value_prep_1,replace_value_test_1_1,LM_NONE,0},
 		{"replace_value_1_2",replace_value_prep_1,replace_value_test_1_2,LM_NONE,0},
 		{"replace_value_2_1",replace_value_prep_2,replace_value_test_2_1,LM_NONE,0},
 		{"replace_value_2_2",replace_value_prep_2,replace_value_test_2_2,LM_NONE,0},
 		{"replace_value_2_3",replace_value_prep_2,replace_value_test_2_3,LM_NONE,0},
+
 		{"replace_phantom_value_1",replace_phantom_value_prep_1,replace_phantom_value_test_1,LM_NONE,UF_PHANTOM_KEYS},
 		{"replace_phantom_value_2_1",replace_phantom_value_prep_2_1,replace_phantom_value_test_2_1,LM_NONE,UF_PHANTOM_KEYS},
 		{"replace_phantom_value_2_2",replace_phantom_value_prep_2_2,replace_phantom_value_test_2_2,LM_NONE,UF_PHANTOM_KEYS},
 		{"replace_phantom_value_2_3",replace_phantom_value_prep_2_3,replace_phantom_value_test_2_3,LM_NONE,UF_PHANTOM_KEYS},
 		{"replace_phantom_value_2_4",replace_phantom_value_prep_2_4,replace_phantom_value_test_2_4,LM_NONE,UF_PHANTOM_KEYS},
+		{"replace_phantom_value_2_5",replace_phantom_value_prep_2_5,replace_phantom_value_test_2_5,LM_NONE,UF_PHANTOM_KEYS},
 		{"replace_phantom_value_3_1",replace_phantom_value_prep_3_1,replace_phantom_value_test_3_1,LM_NONE,UF_PHANTOM_KEYS},
 		{"replace_phantom_value_3_2",replace_phantom_value_prep_3_2,replace_phantom_value_test_3_2,LM_NONE,UF_PHANTOM_KEYS},
 		{"replace_phantom_value_4_1",replace_phantom_value_prep_4_1,replace_phantom_value_test_4_1,LM_NONE,UF_PHANTOM_KEYS},
 		{"replace_phantom_value_4_2",replace_phantom_value_prep_4_2,replace_phantom_value_test_4_1,LM_NONE,UF_PHANTOM_KEYS},
 		{"replace_phantom_value_4_3",replace_phantom_value_prep_4_3,replace_phantom_value_test_4_3,LM_NONE,UF_PHANTOM_KEYS},
-		{"replace_phantom_value_4_4",replace_phantom_value_prep_4_4,replace_phantom_value_test_4_4,LM_NONE,UF_PHANTOM_KEYS},
+		{"replace_phantom_value_4_4_1",replace_phantom_value_prep_4_4,replace_phantom_value_test_4_4_1,LM_NONE,UF_PHANTOM_KEYS},
+		{"replace_phantom_value_4_4_2",replace_phantom_value_prep_4_4,replace_phantom_value_test_4_4_2,LM_NONE,UF_PHANTOM_KEYS},
 		{"replace_phantom_value_4_5",replace_phantom_value_prep_4_5,replace_phantom_value_test_4_5,LM_NONE,UF_PHANTOM_KEYS},
+		{"replace_phantom_value_4_6",replace_phantom_value_prep_4_6,replace_phantom_value_test_4_6,LM_NONE,UF_PHANTOM_KEYS},
+
 		{"key_try_set_1",key_try_set_prep_1,key_try_set_test_1,LM_NONE,0},
 		{"key_try_set_2",key_try_set_prep_2,key_try_set_test_2,LM_NONE,0},
 		{"key_try_set_3",key_try_set_prep_3,key_try_set_test_3,LM_NONE,0},

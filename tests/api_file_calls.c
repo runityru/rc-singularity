@@ -23,6 +23,15 @@ void generate_csv_keys(char *filename,unsigned start,unsigned keys_cnt,unsigned 
 	fclose(f);
 	}
 
+void generate_csv_diff(char *filename,char op,unsigned start,unsigned keys_cnt,unsigned valnum)
+	{
+	unsigned i;
+	FILE *f = fopen(filename,"a");
+	for (i = start; i < start + keys_cnt; i++)
+		fprintf(f,"%ck%d\tval%d\n",op,i,valnum);
+	fclose(f);
+	}
+
 element_type diff_prep(FSingSet *index,int *res_mem)
 	{
 	char key[20];
@@ -31,6 +40,25 @@ element_type diff_prep(FSingSet *index,int *res_mem)
 		{
 		sprintf(key,"k%d",i);
 		if (sing_set_key(index,key,"val0",4))
+			return 1;
+		}
+	return 0;
+	}
+
+element_type remove_prep(FSingSet *index,int *res_mem)
+	{
+	char key[20];
+	int i;
+	for(i = 0; i < 2500; i++)
+		{
+		sprintf(key,"k%d",i);
+		if (sing_set_key(index,key,"val0",4))
+			return 1;
+		}
+	for(i = 2500; i < 5000; i++)
+		{
+		sprintf(key,"k%d",i);
+		if (sing_set_phantom(index,key,"val2",4))
 			return 1;
 		}
 	return 0;
@@ -265,7 +293,10 @@ int intersect_replace_test(FSingSet *index,int *res_mem,element_type prep_data)
 	generate_csv_keys("intersect_test",2500,3000,1);
 	FSingCSVFile compare_file = {2,"intersect_test",0,'\t'}; 
 	if ((res = sing_intersect_replace_file(index,&compare_file)))
-		return res;
+		{
+		rv = res;
+		goto intersect_test_exit;
+		}
 	for(i = 0; i < 2500; i++)
 		{
 		sprintf(key,"k%d",i);
@@ -291,13 +322,94 @@ intersect_test_exit:
 	return rv;
 	}
 
+int remove_test_1(FSingSet *index,int *res_mem,element_type prep_data)
+	{
+	char key[20],value[20];
+	unsigned vsize = 20;
+	int i,rv = 1, res;
+	unlink("remove_test_1");
+	generate_csv_diff("remove_test_1",'+',2500,500,1);
+	generate_csv_diff("remove_test_1",'-',3000,500,1);
+	FSingCSVFile compare_file = {2,"remove_test_1",0,'\t'}; 
+	if ((res = sing_remove_file(index,&compare_file)))
+		{
+		rv = res;
+		goto remove_test_1_exit;
+		}
+	for(i = 0; i < 2500; i++)
+		{
+		sprintf(key,"k%d",i);
+		res = sing_get_value(index,key,value,&vsize);
+		if (res || vsize != 4 || strncmp("val0",value,4))
+			goto remove_test_1_exit;
+		}
+	for(i = 2500; i < 3500; i++)
+		{
+		sprintf(key,"k%d",i);
+		if(sing_key_present(index,key) != SING_RESULT_KEY_NOT_FOUND)
+			goto remove_test_1_exit;
+		}
+	for(i = 3500; i < 5000; i++)
+		{
+		sprintf(key,"k%d",i);
+		res = sing_get_value(index,key,value,&vsize);
+		if (res || vsize != 4 || strncmp("val0",value,4))
+			goto remove_test_1_exit;
+		}
+	rv = 0;
+remove_test_1_exit:
+	unlink("remove_test_1");
+	return rv;
+	}
+
+int remove_test_2(FSingSet *index,int *res_mem,element_type prep_data)
+	{
+	char key[20],value[20];
+	unsigned vsize = 20;
+	int i,rv = 1, res;
+	unlink("remove_test_2");
+	generate_csv_diff("remove_test_2",'+',2500,500,1);
+	generate_csv_diff("remove_test_2",'-',3000,500,1);
+	FSingCSVFile compare_file = {2,"remove_test_2",0,'\t'}; 
+	if ((res = sing_remove_file(index,&compare_file)))
+		{
+		rv = res;
+		goto remove_test_2_exit;
+		}
+	for(i = 0; i < 2500; i++)
+		{
+		sprintf(key,"k%d",i);
+		res = sing_get_value(index,key,value,&vsize);
+		if (res || vsize != 4 || strncmp("val0",value,4))
+			goto remove_test_2_exit;
+		}
+	for(i = 2500; i < 3500; i++)
+		{
+		sprintf(key,"k%d",i);
+		if(sing_key_present(index,key) != SING_RESULT_KEY_NOT_FOUND)
+			goto remove_test_2_exit;
+		if(sing_phantom_present(index,key) != SING_RESULT_KEY_NOT_FOUND)
+			goto remove_test_2_exit;
+		}
+	for(i = 3500; i < 5000; i++)
+		{
+		sprintf(key,"k%d",i);
+		res = sing_get_phantom(index,key,value,&vsize);
+		if (res || vsize != 4 || strncmp("val2",value,4))
+			goto remove_test_2_exit;
+		}
+	rv = 0;
+remove_test_2_exit:
+	unlink("remove_test_2");
+	return rv;
+	}
+
 int main(void)
 	{
 	int rv = 0;
 	unsigned i;
 
 	FTestData tests[] = {
-		{"intersect_replace_1",diff_prep,intersect_replace_test,SING_LM_NONE,0},
 		{"diff_replace_1",diff_prep,diff_replace_test,SING_LM_NONE,0},
 		{"diff_replace_2",diff_prep,diff_replace_test,SING_LM_NONE,SING_UF_COUNTERS},
 		{"diff_replace_3",diff_prep,diff_replace_test_3,SING_LM_NONE,SING_UF_COUNTERS},
@@ -306,7 +418,10 @@ int main(void)
 		{"diff_3",diff_prep,diff_test_3,SING_LM_NONE,SING_UF_COUNTERS},
 		{"intersect_1",diff_prep,intersect_test,SING_LM_NONE,0},
 		{"intersect_2",diff_prep,intersect_test,SING_LM_NONE,SING_UF_COUNTERS},
+		{"intersect_replace_1",diff_prep,intersect_replace_test,SING_LM_NONE,0},
 		{"intersect_replace_2",diff_prep,intersect_replace_test,SING_LM_NONE,SING_UF_COUNTERS},
+		{"remove_1",diff_prep,remove_test_1,SING_LM_NONE,0},
+		{"remove_2",remove_prep,remove_test_2,SING_LM_NONE,SING_UF_PHANTOM_KEYS},
 		};
 	unsigned tcnt = sizeof(tests) / sizeof(FTestData);
 	for (i = 0; i < tcnt; i++)

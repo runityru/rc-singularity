@@ -18,7 +18,7 @@ typedef struct FKeyHeadTg
 	element_type has_value:1;  // Есть ли данные. Заполняется в cd_trasform. 
 	element_type chain_stop:1; // Это последний заголовок в цепочке. Заполняется при создании структуры в 1 (т.к. если структура будет добавлена, заголовок станет последним)
 										// Невалиден в хештаблице, тк невозможно поддерживать консистентным
-	element_type diff_mark:1;  // Служебная отметка
+	element_type diff_or_phantom_mark:1;  // Служебная отметка
 	element_type data0:(ELEMENT_SIZE * 8 - 10);     // Первая часть ключа. Заполняется в cd_encode.
 	
 	element_type extra;    // Заполняется в cd_encode. Тут может быть ссылка на продолжение ключа и значение или короткое продолжение ключа (до 4 байт)
@@ -63,12 +63,12 @@ typedef struct
 	
 typedef union FKeyHeadGeneralTg
 	{
+	uint64_t whole;
 	FKeyHead fields;
 	FKeyHeadLinks links;
 	FKeyHeadLinksArray links_array;
 	FKeyHeadSpace space;
 	FKeyHeadData data;
-	uint64_t whole;
 	} FKeyHeadGeneral;
 	
 #define KEYHEADS_IN_BLOCK (CACHE_LINE_SIZE / sizeof(FKeyHead))

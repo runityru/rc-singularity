@@ -3,6 +3,10 @@ Major - data store format
 Minor - incompatible API changes
 Release - fixes, performance improvement, API additions
 
+0.9.11 - Fixed bug with lock removing in multikeys reads. 
+        Fixed work with phantoms in most api data calls. Added set of calls for working with phantoms. Added many tests for phantom keys and values.
+        Added work with single keys in sing_handler. Documentation fixes.
+
 0.9.10 - Fixed work with phantom values. Key now can containt both phantom and normal values, phantom stored in extra_bytes. In this case
         both values has phantom flag setted. Deleted key with no actual value still marked with diff_mark. This allow concatenation of
         diffs without overwriting changes. Flag use_phantom in tdata allow overwrite phantom behavior and perform normal deleting or replacing
