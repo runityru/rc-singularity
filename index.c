@@ -156,6 +156,9 @@ FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,
 	int ifd = -1,pfd = -1;
 	int map_flags = MAP_ANONYMOUS | MAP_PRIVATE;
 
+	if ((flags & CF_READER) && (flags & (CF_UNLOAD_ON_CLOSE | CF_KEEP_LOCK)))
+		return cnf_set_error(config,"incompatible flags"), NULL;
+
 	if (!(rv = _alloc_index()))
 		{ cnf_set_error(config,"not enougth memory for set initialization"); return NULL; }
 
@@ -296,7 +299,19 @@ FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,
 	
 idx_empty_index_fail:
 	if (rv) 
-		sing_delete_set(rv);
+		{
+		if (rv->filenames.index_file)
+			{
+			unlink(rv->filenames.index_file);
+			unlink(rv->filenames.pages_file);
+			}
+		if (rv->filenames.index_shm)
+			{
+			shm_unlink(rv->filenames.index_shm);
+			shm_unlink(rv->filenames.pages_shm);
+			}
+		idx_unlink_set(rv);
+		}
 
 	return NULL;
 	}
@@ -354,6 +369,7 @@ static int _file_relink(FSingSet *kvset)
 		bkstate[2] *= 2;
 		if (rename(kvset->filenames.pages_file,nnames.pages_file))
 			goto _file_relink_fail;
+		bkstate[3] *= 2;
 		}
 
 	char *tofree = kvset->filenames.index_shm_file;
@@ -366,6 +382,10 @@ static int _file_relink(FSingSet *kvset)
 		memcpy(&kvset->old_data->filenames.index_shm_file,&bk_names,sizeof(FFileNames));
 		free(tofree);
 		}
+	if (bkstate[3]) unlink(bk_names.pages_file);
+	if (bkstate[2]) unlink(bk_names.index_file);
+	if (bkstate[1]) unlink(bk_names.pages_shm_file);
+	if (bkstate[0]) unlink(bk_names.index_shm_file);
 
 	return 0;
 
@@ -411,12 +431,16 @@ int idx_creation_done(FSingSet *kvset,unsigned lock_mode)
 			break;
 		}
 	lck_init_locks(kvset);
+
+	if ((kvset->conn_flags & CF_KEEP_LOCK) && lck_manualLock(kvset))
+		return 1;
+
 	if (!kvset->is_private && _file_relink(kvset))
 		return 1;
 
 	if (kvset->old_data)
 		{
-		sing_delete_set(kvset->old_data);
+		idx_unload_set(kvset->old_data,1);
 		kvset->old_data = NULL;
 		}
 
@@ -454,6 +478,9 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 	
 	if (!setname)
 		return cnf_set_error(config,"can not link to unnamed set"), NULL;
+
+	if ((flags & CF_READER) && (flags & (CF_UNLOAD_ON_CLOSE | CF_KEEP_LOCK)))
+		return cnf_set_error(config,"incompatible flags"), NULL;
 
 	if (!(rv = _alloc_index()))
 		return cnf_set_error(config,"not enougth memory for index struct"), NULL;
@@ -522,6 +549,15 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 			rv->filenames.index_file = rv->filenames.pages_file = NULL;
 		}
 	rv->read_only = (head->lock_mode == LM_READ_ONLY) ? 1 : 0;
+	switch(head->lock_mode)
+		{
+		case LM_READ_ONLY:
+		case LM_NONE:
+			if (flags & CF_KEEP_LOCK)
+				{ cnf_set_error(config,"incompatible flags and lock mode"); goto sing_link_set_fail; }
+			break;
+		}
+
 	rv->hashtable_size = head->hashtable_size;
 	extra_struct = index_share + head_sizes.disk_file_size;
 	locks_size = sizeof(FLockSet) + sizeof(uint64_t) * (rv->hashtable_size / 128 + ((rv->hashtable_size % 128) ? 1 : 0));
@@ -584,6 +620,13 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 				rv->pages[i] = rv->pages[0] + i * PAGE_SIZE;
 			cp_mark_pages_loaded(rv);
 			}
+		}
+
+	if ((rv->conn_flags & CF_KEEP_LOCK) && lck_manualLock(rv))
+		{ cnf_set_error(config,"can not set manual lock"); goto sing_link_set_fail; }
+		
+	if (file_locked)
+		{
 		file_lock(ifd,LOCK_UN);
 		file_locked = 0;
 		}
@@ -607,7 +650,7 @@ sing_link_set_fail:
 		}
 	if (ifd != -1) close(ifd);
 	if (rv) 
-		sing_unlink_set(rv);
+		idx_unlink_set(rv);
 
 	return NULL;
 	}
@@ -617,7 +660,7 @@ int idx_relink_set(FSingSet *index)
 	return 1;
 	}
 	
-void sing_unlink_set(FSingSet *index)
+void idx_unlink_set(FSingSet *index)
 	{
 	unsigned i,pcnt;
 	
@@ -644,27 +687,35 @@ void sing_unlink_set(FSingSet *index)
 	if (index->filenames.index_shm_file) free(index->filenames.index_shm_file);
 	free(index);
 	}
-	
-void sing_unload_set(FSingSet *index)
+
+int idx_unload_set(FSingSet *kvset,int del_from_disk)
 	{
-	if (index->filenames.index_shm)
-		{
-		shm_unlink(index->filenames.index_shm);
-		shm_unlink(index->filenames.pages_shm);
+	int res = 0;
+	if (lck_manualPresent(kvset))
+		{ // if we have manual lock - revert to disk copy if present and keep the lock
+		if (kvset->head->lock_mode == LM_PROTECTED)
+			lck_protectWait(kvset);
+		if (!(kvset->head->use_flags & UF_NOT_PERSISTENT))
+			res = idx_revert(kvset);
 		}
-	if (index->head != MAP_FAILED)
-		lck_deinit_locks(index);
-	sing_unlink_set(index);
-	}
-	
-void sing_delete_set(FSingSet *index)
-	{
-	if (index->filenames.index_file)
+	else if (kvset->head->lock_mode != LM_NONE && kvset->head->lock_mode != LM_READ_ONLY)
+		res = lck_manualLock(kvset); // Otherwise set manual lock
+	if (res)
+		return res;
+
+	if (del_from_disk && kvset->filenames.index_file)
 		{
-		unlink(index->filenames.index_file);
-		unlink(index->filenames.pages_file);
+		unlink(kvset->filenames.index_file);
+		unlink(kvset->filenames.pages_file);
 		}
-	sing_unload_set(index);
+	if (kvset->filenames.index_shm)
+		{
+		shm_unlink(kvset->filenames.index_shm);
+		shm_unlink(kvset->filenames.pages_shm);
+		}
+	lck_deinit_locks(kvset); // Deleting mutex and removing all locks
+	idx_unlink_set(kvset);
+	return 0;
 	}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////

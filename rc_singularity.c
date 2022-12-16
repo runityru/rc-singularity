@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 
 #include "config.h"
 #include "index.h"
@@ -220,6 +221,16 @@ FSingSet *sing_create_set(const char *setname,const FSingCSVFile *csv_file,unsig
 	FSingSet *index;
 	off_t filesize = 0;
 	FSingConfig *used_config = config;
+
+	switch(lock_mode)
+		{
+		case LM_READ_ONLY:
+		case LM_NONE:
+			if (flags & CF_KEEP_LOCK)
+				return cnf_set_error(config,"incompatible flags and lock mode"), NULL;
+			break;
+		}
+
 	if (!used_config && !(used_config = sing_config_get_default()))
 		return NULL;
 	if (csv_file && csv_file->filename)
@@ -258,6 +269,36 @@ FSingSet *sing_link_set(const char *setname,unsigned flags,FSingConfig *config)
 	return index;
 	}
 
+void sing_unlink_set(FSingSet *kvset)
+	{
+	if (kvset->conn_flags & CF_UNLOAD_ON_CLOSE)
+		{
+		if (!idx_unload_set(kvset,0))
+			return;
+		}
+// if we are under manual lock then perform silent revert if possible and remove lock 
+	if (lck_manualPresent(kvset))
+		lck_manualUnlock(kvset,0,NULL);
+	idx_unlink_set(kvset);
+	}
+
+int sing_unload_set(FSingSet *kvset)
+	{ return idx_unload_set(kvset,0); }
+	
+int sing_delete_set(FSingSet *kvset)
+	{ return idx_unload_set(kvset,1); }
+
+int sing_unload_on_close(FSingSet *kvset,unsigned unload)
+	{
+	if (kvset->read_only)
+		return SING_ERROR_IMPOSSIBLE_OPERATION;
+	if (unload)
+		kvset->conn_flags |= CF_UNLOAD_ON_CLOSE;
+	else
+		kvset->conn_flags &= ~CF_UNLOAD_ON_CLOSE;
+	return 0;
+	}
+
 const char *sing_get_error(FSingSet *index)
 	{ return index->last_error; }
 
@@ -277,6 +318,9 @@ unsigned sing_get_mode(FSingSet *index)
 
 int sing_lock_W(FSingSet *kvset)
 	{ return lck_manualLock(kvset); }
+
+int sing_try_lock_W(FSingSet *kvset)
+	{ return lck_manualTry(kvset); }
 
 int sing_unlock_commit(FSingSet *kvset,uint32_t *saved)
 	{ return lck_manualUnlock(kvset,1,saved); }

@@ -40,29 +40,24 @@ void lck_init_locks(FSingSet *kvset)
 	}
 
 void lck_deinit_locks(FSingSet *kvset)
- // Эта схема в каком-то случае все таки может привести к неопред. поведению, 
- // но мы не можем использовать счетчик пытающихся захватить мутекс для безопасного его удаления (иначе мутекс становится бессмысленным).
-	{
-	struct timespec ts = {0,10000000};
+ // We should be under manual mutex lock
+ 	{
+	struct timespec ts = {0,11000000};
 	struct timespec ts2;
 	struct timespec *req = &ts, *rem = &ts2, *swp;
-	int err;
 	__atomic_store_n(&kvset->head->bad_states.states.deleted,1,__ATOMIC_SEQ_CST);
 	switch (kvset->head->lock_mode)
 		{
 		case LM_PROTECTED:
-		case LM_SIMPLE:
-			err = pthread_mutex_lock(&kvset->lock_set->process_lock);
-			switch(err)
-				{
-				case EOWNERDEAD:
-					pthread_mutex_consistent(&kvset->lock_set->process_lock);
-				case 0:
-					while(nanosleep(req,rem) == EINTR) // 10мс wait. Processes waiting for mutex, should get timeout and discover deleted state
-						swp = req, req = rem, rem = swp;
-					pthread_mutex_unlock(&kvset->lock_set->process_lock);
-				}
+			lck_protectWait(kvset);
+		case LM_SIMPLE: // Destroying mutex
+			while(nanosleep(req,rem) == EINTR) // 11мс wait. Processes waiting for mutex, should get timeout and discover deleted state
+				swp = req, req = rem, rem = swp;
+			pthread_mutex_unlock(&kvset->lock_set->process_lock);
 			while (pthread_mutex_destroy(&kvset->lock_set->process_lock) == EBUSY); // It looks like EBUSY will not work for robust mutex
+			return;
+		case LM_FAST: // Just removing spinlock
+			lck_unlock_ex(&kvset->lock_set->shex_lock);
 		}
 	}
 
@@ -112,6 +107,25 @@ lck_lock_ex_repeat:
 	return 0;
 	}
 
+static int _try_ex(FSingSet *kvset)
+	{
+	BAD_STATES_CHECK(kvset);
+	uint32_t tid = gettid();
+	FShExLock shex_lock,new_state;
+	shex_lock.whole = __atomic_load_n(&kvset->lock_set->shex_lock.whole,__ATOMIC_RELAXED); 
+	if (shex_lock.exclusive_lock == tid)
+		return ERROR_IMPOSSIBLE_OPERATION;
+	if (shex_lock.exclusive_lock)
+		return RESULT_LOCKED;
+	new_state = shex_lock;
+	new_state.exclusive_lock = tid;
+	if (!__atomic_compare_exchange_n(&kvset->lock_set->shex_lock.whole, &shex_lock.whole, new_state.whole, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+		return RESULT_LOCKED;
+	while(shex_lock.shared_count)
+		_mm_pause(),shex_lock.whole = __atomic_load_n(&kvset->lock_set->shex_lock.whole,__ATOMIC_RELAXED);
+	return 0;
+	}
+
 static inline int _common_mutexLock(FSingSet *kvset)
 	{
 	int res;
@@ -154,6 +168,52 @@ lck_processLock_retry:
 				{
 				pthread_mutex_unlock(&kvset->lock_set->process_lock);
 				goto lck_processLock_retry; 
+				}
+			return 0;	
+		}
+	return ERROR_INTERNAL;
+	}
+
+static inline int _mutexTry(FSingSet *kvset)
+	{
+	int res;
+
+_mutexTry_retry:
+	BAD_STATES_CHECK(kvset);
+	int err = pthread_mutex_trylock(&kvset->lock_set->process_lock);
+	switch(err)
+		{
+		case EINVAL: // Can occur if mutex was deleted
+			if (__atomic_load_n(&kvset->head->bad_states.states.deleted,__ATOMIC_SEQ_CST))
+				goto _mutexTry_retry;
+			return ERROR_INTERNAL;
+		case EOWNERDEAD:
+			pthread_mutex_consistent(&kvset->lock_set->process_lock);
+			if (kvset->head->use_flags & UF_NOT_PERSISTENT)
+				{
+				kvset->head->bad_states.states.corrupted = 1; // Light failure, set is readable
+				pthread_mutex_unlock(&kvset->lock_set->process_lock);
+				return ERROR_DATA_CORRUPTED;
+				}
+			if (kvset->head->wip)
+				{
+				if (cp_flush(kvset) < 0)
+					return pthread_mutex_unlock(&kvset->lock_set->process_lock), ERROR_SYNC_FAILED;
+				}
+			else if ((res = idx_revert(kvset)) < 0)
+				{
+				if (res == ERROR_INTERNAL)
+					kvset->head->bad_states.states.corrupted = 1; // No disk load was made, set is still readable
+				pthread_mutex_unlock(&kvset->lock_set->process_lock);
+				return ERROR_DATA_CORRUPTED;
+				}
+		case EBUSY:
+			return RESULT_LOCKED;
+		case 0:
+			if (__atomic_load_n(&kvset->head->bad_states.states.deleted,__ATOMIC_RELAXED))
+				{
+				pthread_mutex_unlock(&kvset->lock_set->process_lock);
+				goto _mutexTry_retry; 
 				}
 			return 0;	
 		}
@@ -232,6 +292,7 @@ int lck_manualLock(FSingSet *kvset)
 	switch(kvset->head->lock_mode)
 		{
 		case LM_NONE:
+			BAD_STATES_CHECK(kvset);
 			return ERROR_IMPOSSIBLE_OPERATION;
 		case LM_FAST:
 			return lck_lock_ex(kvset);
@@ -244,6 +305,58 @@ int lck_manualLock(FSingSet *kvset)
 	return res;
 	}
 
+int lck_manualPresent(FSingSet *kvset)
+	{
+	if (kvset->read_only)
+		return 0;
+	switch(kvset->head->lock_mode)
+		{
+		case LM_PROTECTED:
+			return (__atomic_load_n(&kvset->protect_lock.manual_locked,__ATOMIC_RELAXED) == gettid()) ? 1 : 0;
+		case LM_FAST:
+			return (kvset->lock_set->shex_lock.exclusive_lock == gettid()) ? 1 : 0;
+		case LM_SIMPLE:
+			return kvset->protect_lock.manual_locked;
+		}
+	return 0;
+	}
+
+int lck_manualTry(FSingSet *kvset)
+	{
+	if (kvset->read_only)
+		{
+		BAD_STATES_CHECK(kvset);
+		return ERROR_IMPOSSIBLE_OPERATION;
+		}
+	switch(kvset->head->lock_mode)
+		{
+		case LM_NONE:
+			BAD_STATES_CHECK(kvset);
+			return ERROR_IMPOSSIBLE_OPERATION;
+		case LM_FAST:
+			return _try_ex(kvset);
+		}
+	if (kvset->protect_lock.manual_locked)
+		return ERROR_IMPOSSIBLE_OPERATION;
+	int res = _mutexTry(kvset);
+	if (!res)
+		__atomic_store_n(&kvset->protect_lock.manual_locked,gettid(),__ATOMIC_SEQ_CST); // Or we can lose this if this thread switch to other core before unlock
+	return res;
+	}
+
+void lck_protectWait(FSingSet *kvset)
+	{
+	FProtectLock protect_lock;
+	protect_lock.whole = __atomic_and_fetch(&kvset->protect_lock.whole,0xFFFFFFFFLL,__ATOMIC_SEQ_CST); 
+	if (protect_lock.locks_count)
+		{
+		_mm_pause();
+		while (__atomic_load_n(&kvset->protect_lock.locks_count,__ATOMIC_RELAXED))
+			_mm_pause();
+		}
+	}
+
+
 int lck_manualUnlock(FSingSet *kvset,int commit,uint32_t *saved)
 	{
 	if (kvset->read_only)
@@ -253,20 +366,10 @@ int lck_manualUnlock(FSingSet *kvset,int commit,uint32_t *saved)
 		case LM_NONE:
 			return ERROR_IMPOSSIBLE_OPERATION;
 		case LM_PROTECTED:
-			{
-			FProtectLock protect_lock;
-			uint32_t tid = gettid();
-			if (__atomic_load_n(&kvset->protect_lock.manual_locked,__ATOMIC_RELAXED) != tid)
+			if (__atomic_load_n(&kvset->protect_lock.manual_locked,__ATOMIC_RELAXED) != gettid())
 				return ERROR_IMPOSSIBLE_OPERATION; // There can't be our tid anyway
-			protect_lock.whole = __atomic_sub_fetch(&kvset->protect_lock.whole,((uint64_t)tid) << 32,__ATOMIC_SEQ_CST); // Removing flag and read count
-			if (protect_lock.locks_count)
-				{
-				_mm_pause();
-				while (__atomic_load_n(&kvset->protect_lock.locks_count,__ATOMIC_RELAXED))
-					_mm_pause();
-				}
+			lck_protectWait(kvset);
 			break; // We are still under mutex, but other threads are stopped, so we can perform disk sync
-			}
 		case LM_FAST:
 			if (kvset->lock_set->shex_lock.exclusive_lock != gettid())
 				return ERROR_IMPOSSIBLE_OPERATION; // We should check if manual lock is removing by same thread

@@ -24,6 +24,8 @@
 #define SING_CF_PARSE_ERRORS 0x200
 #define SING_CF_FULL_LOAD 0x400
 #define SING_CF_READER 0x800
+#define SING_CF_KEEP_LOCK 0x1000
+#define SING_CF_UNLOAD_ON_CLOSE 0x2000
 
 #ifndef _SING_CSV_FILE
 #define _SING_CSV_FILE
@@ -63,6 +65,7 @@ typedef enum ESingLockModeTg
 #define SING_RESULT_SMALL_BUFFER 0x0C00
 #define SING_RESULT_VALUE_DIFFER 0x0D00
 #define SING_RESULT_KEY_PRESENT 0x0E00
+#define SING_RESULT_LOCKED 0x0F00
 
 typedef struct FSingSetTg FSingSet;
 typedef struct FKeyHeadTg FKeyHead;
@@ -84,8 +87,8 @@ void sing_delete_config(FSingConfig *config);
 FSingSet *sing_create_set(const char *setname,const FSingCSVFile *csv_file,unsigned keys_count,unsigned flags,unsigned lock_mode,FSingConfig *config);
 FSingSet *sing_link_set(const char *setname,unsigned flags,FSingConfig *config);
 void sing_unlink_set(FSingSet *index);
-void sing_unload_set(FSingSet *index);
-void sing_delete_set(FSingSet *index);
+int sing_unload_set(FSingSet *index);
+int sing_delete_set(FSingSet *index);
 
 // utility calls 
 
@@ -94,10 +97,12 @@ const char *sing_get_error(FSingSet *index);
 uint32_t sing_get_memsize(FSingSet *index);
 int sing_check_set(FSingSet *index);
 unsigned sing_get_mode(FSingSet *index);
+int sing_unload_on_close(FSingSet *kvset,unsigned unload);
 
 // locks and disk sinchronisation
 
 int sing_lock_W(FSingSet *kvset);
+int sing_try_lock_W(FSingSet *kvset);
 int sing_unlock_commit(FSingSet *kvset,uint32_t *saved);
 int sing_unlock_revert(FSingSet *kvset);
 int sing_flush(FSingSet *kvset,uint32_t *saved);

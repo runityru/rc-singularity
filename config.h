@@ -24,7 +24,8 @@ typedef struct FSingCSVFileTg
 #define CF_PARSE_ERRORS 0x200
 #define CF_FULL_LOAD 0x400
 #define CF_READER 0x800
-#define CF_STAY_LOCKED 0x1000
+#define CF_KEEP_LOCK 0x1000
+#define CF_UNLOAD_ON_CLOSE 0x2000
 
 #define CF_MASK 0xFF00
 

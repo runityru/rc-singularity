@@ -3,6 +3,9 @@ Major - data store format
 Minor - incompatible API changes
 Release - fixes, performance improvement, API additions
 
+0.9.12 - Unload and deletion now work under exclusive lock, if allowed by lock mode. Unlink remove exclusive lock and revert to disk copy such lock if exists.
+        Added flags SING_CF_UNLOAD_ON_CLOSE and SING_CF_KEEP_LOCK. Documentation fixes.
+
 0.9.11 - Fixed bug with lock removing in multikeys reads. 
         Fixed work with phantoms in most api data calls. Added set of calls for working with phantoms. Added many tests for phantom keys and values.
         Added work with single keys in sing_handler. Documentation fixes.

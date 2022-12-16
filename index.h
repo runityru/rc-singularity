@@ -176,9 +176,8 @@ int idx_creation_done(FSingSet *index,unsigned lock_mode);
 int idx_relink_set(FSingSet *index);
 
 FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config);
-void sing_unlink_set(FSingSet *index);
-void sing_unload_set(FSingSet *index);
-void sing_delete_set(FSingSet *index);
+void idx_unlink_set(FSingSet *index);
+int idx_unload_set(FSingSet *kvset,int del_from_disk);
 
 typedef struct FReaderLockTg FReaderLock;
 	
@@ -218,6 +217,7 @@ void idx_print_chain_distrib(FSingSet *index);
 #define RESULT_SMALL_BUFFER 0x0C00
 #define RESULT_VALUE_DIFFER 0x0D00
 #define RESULT_KEY_PRESENT 0x0E00
+#define RESULT_LOCKED 0x0F00
 
 int idx_key_try_lookup(FSingSet *index,FTransformData *tdata);
 int idx_key_lookup(FSingSet *index,FTransformData *tdata);
