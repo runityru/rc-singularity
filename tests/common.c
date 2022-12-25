@@ -150,7 +150,10 @@ test_error:
 	if (rv)
 		printf("Test %s failed: %s\n",test_data->name,index ? sing_get_error(index) : sing_config_get_error(config));
 	if (index)
+		{
+		index->read_only = 0;
 		sing_delete_set(index);
+		}
 	if (config)
 		sing_delete_config(config);
 	return rv;

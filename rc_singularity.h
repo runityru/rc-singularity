@@ -117,7 +117,7 @@ int sing_diff_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outf
 int sing_diff_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile);
 int sing_intersect_file(FSingSet *kvset,const FSingCSVFile *csv_file);
 int sing_intersect_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file);
-int sing_dump(FSingSet *kvset,char *outfile,unsigned flags);
+int sing_dump(FSingSet *kvset,char *outfile);
 
 // simple reading calls
 

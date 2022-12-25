@@ -128,12 +128,17 @@ typedef struct FProtectLockTg
 
 
 typedef struct FFileNamesTg {
-	char *index_shm_file;
-	char *pages_shm_file;
-	char *index_shm;
-	char *pages_shm;
-	char *index_file;
-	char *pages_file;
+	union {
+		char *names[4];
+		struct {
+			char *index_shm_file; // Name of shared memory index file on filesystem 
+			char *pages_shm_file; // Name of shared memory pages file on filesystem 
+			char *index_file; // Name of index disk file
+			char *pages_file; // Name of pages disk file
+			};
+		};
+	char *index_shm; // Name of shared memory index object
+	char *pages_shm; // Name of shared pages index object
 	} FFileNames;
 
 typedef struct FSingSetTg

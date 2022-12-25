@@ -7,6 +7,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "../index.h"
 #include "../cpages.h"
@@ -388,6 +389,34 @@ int locks_test_lm_fast(void)
 	return rv;
 	}
 
+volatile int lockDone = 0;
+
+void *unload_thread(void *param)
+	{
+	FSingSet *index = sing_link_set((char *)param,0,NULL);
+	sing_lock_W(index);
+	__atomic_store_n(&lockDone,1,__ATOMIC_RELEASE);
+	sleep(1);
+	sing_unload_set(index);
+	return (void*) 0;
+	}
+
+int locks_test_lm_simple_relink(void)
+	{
+	int *trv;
+	pthread_t unl_thread;
+	FSingSet *index = sing_create_set("locks_test_simple_relink",NULL,0,0,LM_SIMPLE,NULL);
+	pthread_create(&unl_thread, NULL, unload_thread, "locks_test_simple_relink");
+	while(!__atomic_load_n(&lockDone,__ATOMIC_ACQUIRE))
+		_mm_pause();
+	int res = sing_lock_W(index);
+	pthread_join(unl_thread,(void**)&trv);
+	sing_delete_set(index);
+	if (res) 
+		printf ("Test %s failed: %d\n","locks_test_lm_simple_relink",res);
+	return res;
+	}
+
 int main(void)
 	{
 	int rv = 0;
@@ -396,6 +425,8 @@ int main(void)
 	if (locks_test_reader_revert())
 		rv = 1;
 	if (locks_test_lm_simple())
+		rv = 1;
+	if (locks_test_lm_simple_relink())
 		rv = 1;
 	if (locks_test_lm_fast())
 		rv = 1;

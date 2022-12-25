@@ -8,7 +8,7 @@
 Также в нем сохраняется текстовое сообщение о последней ошибке при создании/подключении набора.
 
 ### sing_config_get_default
-```c 
+``` c 
 FSingConfig *sing_config_get_default(void) 
 ```
 создает конфигурацию по умолчанию из файла /etc/rc_singularity.cnf. Если не найден - создает пустую конфигурацию.  
@@ -16,7 +16,7 @@ FSingConfig *sing_config_get_default(void)
 Возвращает структуру конфигурации для подключения или создания наборов данных. Может вернуть NULL, если не удается выделить память.
 
 ### sing_config_get_empty
-```c 
+``` c 
 FSingConfig *sing_config_get_empty(void)
 ```
 создает пустую конфигурацию: без флагов, копии в рабочей директории, разделитель - табуляция.  
@@ -24,7 +24,7 @@ FSingConfig *sing_config_get_empty(void)
 Возвращает структуру конфигурации для подключения или создания наборов данных. Может вернуть NULL, если не удается выделить память.
 
 ### sing_config_get_error
-```c
+``` c
 const char *sing_config_get_error(FSingConfig *config)
 ```
 **Параметры:**  
@@ -33,7 +33,7 @@ const char *sing_config_get_error(FSingConfig *config)
 Возвращает указатель на буфер с текстом ошибки создания или подключения набора данных (нуль-завершенная строка)
 
 ### sing_config_set_connection_flags
-```c
+``` c
 void sing_config_set_connection_flags(FSingConfig *config,unsigned flags)
 ```
 задает флаги соединения. Ничем не отличается от задания их в вызове соединения  
@@ -42,7 +42,7 @@ void sing_config_set_connection_flags(FSingConfig *config,unsigned flags)
 **_flags_** - флаги соединения (см. sing_link_set)
 
 ### sing_config_set_value_delimiter
-```c
+``` c
 void sing_config_set_value_delimiter(FSingConfig *config,char delimiter)
 ```
 задает разделитель столбцов для хранения значений внутри набора (при парсинге CSV файлов указанный для файла разделитель будет заменяться на этот символ)  
@@ -51,7 +51,7 @@ void sing_config_set_value_delimiter(FSingConfig *config,char delimiter)
 **_delimiter_** - символ разделения столбцов  
 
 ### sing_config_set_base_path
-```c
+``` c
 void sing_config_set_base_path(FSingConfig *config,const char *base_path)
 ```
 задает путь к дисковым копиям данных для разделяемых наборов.  
@@ -60,7 +60,7 @@ void sing_config_set_base_path(FSingConfig *config,const char *base_path)
 **_base_path_** - относительный или абсолютный путь к директории. Слеш в конце допустим но не обязателен.
 
 ### sing_delete_config
-```c
+``` c
 void sing_delete_config(FSingConfig *config)
 ```
 удаляет конфигурацию и освобождает память.  
@@ -75,7 +75,7 @@ void sing_delete_config(FSingConfig *config)
 тогда они рассматриваются библиотекой как разные процессы. Для многопоточных процессов оптимально использовать одно подключение, разделенное между потоками. 
 
 ### sing_create_set
-```c
+``` c
 FSingSet *sing_create_set(const char *setname,const FSingCSVFile *csv_file,unsigned keys_count,unsigned flags,unsigned lock_mode,FSingConfig *config)
 ```
 создает новый kv-набор данных.  
@@ -115,7 +115,7 @@ _Флаги подключения - cм. [sing_link_set](#sing_link_set):_
 sing_config_get_error (это удобно для диагностики неверных путей к файлам и т.п.)
 
 ### sing_link_set
-```c
+``` c
 FSingSet *sing_link_set(const char *setname,unsigned flags,FSingConfig *config)
 ```
 подключается к существующему разделяемому набору данных.  
@@ -138,7 +138,7 @@ FSingSet *sing_link_set(const char *setname,unsigned flags,FSingConfig *config)
 Возвращает структуру подключения в случае успеха. В случае ошибки возвращает NULL и текстовое описание ошибки в config, которое можно получить вызовом sing_config_get_error 
 
 ### sing_unlink_set
-```c
+``` c
 void sing_unlink_set(FSingSet *kvset)
 ```
 отключается от набора данных. Разделяемый набор при этом остается в памяти машины, приватный набор данных уничтожается. Если на наборе есть блокировка [sing_lock_W](#sing_lock_W),
@@ -148,7 +148,7 @@ SING_CF_UNLOAD_ON_CLOSE, вызов аналогичен [sing_unload_set](#sing
 **_kvset_** - подключенный набор данных. После вызова невалиден.  
 
 ### sing_unload_set
-```c
+``` c
 int sing_unload_set(FSingSet *kvset)
 ```
 выгружает разделяемый набор данных из памяти машины (наборы, созданные без дисковой копии уничтожаются). Если на наборе есть блокировка [sing_lock_W](#sing_lock_W),
@@ -164,7 +164,7 @@ SING_ERROR_CONNECTION_LOST - набор удален
 SING_ERROR_SYNC_FAILED - не удается завершить синхронизацию с диском после предыдущей операции  
 
 ### sing_delete_set
-```c
+``` c
 int sing_delete_set(FSingSet *kvset)
 ```
 выгружает разделяемый набор данных из памяти машины и удаляет дисковую копию, если она есть. В остальном аналогична [sing_unload_set](#sing_unload_set).  
@@ -178,7 +178,7 @@ SING_ERROR_CONNECTION_LOST - набор удален
 ## Работа с блокировками, синхронизация с диском
 
 ### sing_lock_W
-```c
+``` c
 int sing_lock_W(FSingSet *kvset)
 int sing_try_lock_W(FSingSet *kvset)
 ```
@@ -200,7 +200,7 @@ SING_ERROR_CONNECTION_LOST - набор удален
 SING_ERROR_SYNC_FAILED - не удается завершить синхронизацию с диском после предыдущей операции  
 
 ### sing_unlock_commit
-```c
+``` c
 int sing_unlock_commit(FSingSet *kvset,uint32_t *saved)
 ```
 Выполняет синхронизацию с дисковой копией, если она есть, и снимает блокировку, наложенную [sing_lock_W](#sing_lock_W).  
@@ -214,7 +214,7 @@ SING_ERROR_SYNC_FAILED - сбой при синхронизации с диск�
 пока набор находится в памяти. После выгрузки из памяти использование набора станет невозможным.   
 
 ### sing_unlock_revert
-```c
+``` c
 int sing_unlock_revert(FSingSet *kvset)
 ```
 Выполняет откат к дисковой копии, если она есть, и снимает блокировку, наложенную [sing_lock_W](#sing_lock_W).  
@@ -226,7 +226,7 @@ SING_ERROR_IMPOSSIBLE_OPERATION - у набора нет дисковой коп
 SING_ERROR_INTERNAL - не удалось выполнить чтение данных с диска. Использование набора невозможно  
 
 ### sing_flush
-```c
+``` c
 int sing_flush(FSingSet *kvset,uint32_t *saved)
 ```
 Выполняет синхронизацию с диском для режимов SING_LM_FAST и SING_LM_NONE. В остальных возвращает ошибку. В режиме SING_LM_FAST конкурентные модифицирующие 
@@ -242,7 +242,7 @@ SING_ERROR_SYNC_FAILED - сбой при синхронизации с диск�
 пока набор находится в памяти. После выгрузки из памяти использование набора станет невозможным. 
 
 ### sing_revert
-```c
+``` c
 int sing_revert(FSingSet *kvset)
 ```
 Выполняет откат к дисковой копии, если она есть, в режимах SING_LM_FAST и SING_LM_NONE. В остальных возвращает ошибку. В режиме SING_LM_FAST конкурентные модифицирующие 
@@ -259,7 +259,7 @@ SING_ERROR_INTERNAL - не удалось выполнить чтение дан
 ## Служебные вызовы
 
 ### sing_total_count
-```с
+``` c
 unsigned sing_total_count(FSingSet *kvset)
 ```
 **Параметры:**  
@@ -268,7 +268,7 @@ unsigned sing_total_count(FSingSet *kvset)
 Количество ключей в наборе. Для наборов с фантомами, удаленные также считаются.
 
 ### sing_get_error
-```с
+``` c
 const char *sing_get_error(FSingSet *kvset)
 ```
 **Параметры:**  
@@ -277,7 +277,7 @@ const char *sing_get_error(FSingSet *kvset)
 Возвращает последнюю текстовую ошибку
 
 ### sing_get_memsize
-```с
+``` c
 unsigned sing_get_memsize(FSingSet *kvset)
 ```
 Возвращает размер набора в памяти в килобайтах. Для разделенных наборов это количество использованной разделенной памяти, для приватных - памяти процесса. 
@@ -288,7 +288,7 @@ unsigned sing_get_memsize(FSingSet *kvset)
 Размер набора в памяти в килобайтах.
 
 ### sing_check_set
-```с
+``` c
 int sing_check_set(FSingSet *kvset)
 ```
 Выполняет полную проверку консистентности набора данных.  
@@ -299,7 +299,7 @@ int sing_check_set(FSingSet *kvset)
 1 - обнаружена ошибка, ее описание можно получить вызовом sing_get_error  
 
 ### sing_get_mode
-```с
+``` c
 unsigned sing_get_mode(FSingSet *kvset)  
 ```
 Возвращает режим блокировок набора  
@@ -309,7 +309,7 @@ unsigned sing_get_mode(FSingSet *kvset)
 режим блокировок набора   
 
 ### sing_unload_on_close
-```с
+``` c
 int sing_unload_on_close(FSingSet *kvset)  
 ```
 Устанавливает или снимает флаг SING_CF_UNLOAD_ON_CLOSE
@@ -334,7 +334,7 @@ SING_ERROR_IMPOSSIBLE_OPERATION - установлен флаг SING_CF_READER.
 Если дисковой копии нет, набор останется частично измененным.
 
 ### sing_add_file, sing_sub_file
-```с
+``` c
 int sing_add_file(FSingSet kvset,const FSingCSVFile csv_file)
 int sing_sub_file(FSingSet kvset,const FSingCSVFile csv_file)
 ```
@@ -369,7 +369,7 @@ SING_ERROR_FILE_NOT_FOUND - не удается открыть CSV файл дл
 SING_ERROR_CONNECTION_LOST - набор удален
 
 ### sing_diff_file, sing_diff_replace_file
-```с
+``` c
 int sing_diff_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile)
 int sing_diff_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile)
 ```
@@ -391,7 +391,7 @@ SING_ERROR_OUTPUT_NOT_FOUND - не удается файл outfile для зап
 SING_ERROR_CONNECTION_LOST - набор удален 
 
 ### sing_intersect_file, sing_intersect_replace_file
-```с
+``` c
 int sing_intersect_file(FSingSet *kvset,const FSingCSVFile *csv_file)
 int sing_intersect_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file)
 ```
@@ -411,7 +411,7 @@ SING_ERROR_OUTPUT_NOT_FOUND - не удается файл outfile для зап
 SING_ERROR_CONNECTION_LOST - набор удален  
 
 ### sing_dump
-```c
+``` c
 int sing_dump(FSingSet *kvset,const char *outfile)
 ```
 записывает содержание набора в файл.  
@@ -438,7 +438,7 @@ SING_ERROR_CONNECTION_LOST - набор удален
 если она есть. 
 
 ### CSingValueAllocator
-```c
+``` c
 typedef void *(* CSingValueAllocator)(unsigned size);
 ```
 Описание коллбека выделения памяти для передачи в функции с суффиксом _cb. Использование вызовов библиотеки из коллбека вызывает неопределенное поведение.  
@@ -448,7 +448,7 @@ typedef void *(* CSingValueAllocator)(unsigned size);
 Возвращает ссылку на выделенную память. Может вернуть NULL, что приведет к ошибке SING_ERROR_NO_MEMORY
 
 ### sing_get_value_cb
-```c
+``` c
 int sing_get_value_cb(FSingSet kvset,const char *key,CSingValueAllocator vacb,void **value,unsigned *vsize)
 int sing_get_value_cb_n(FSingSet kvset,const char *key,unsigned ksize,CSingValueAllocator vacb,void **value,unsigned *vsize)
 ```
@@ -470,7 +470,7 @@ SING_ERROR_NO_SET_MEMORY - не удается выделить страницу
 SING_ERROR_CONNECTION_LOST - набор удален, \*value и \*vsize не меняются  
 
 ### sing_get_phantom_cb
-```c
+``` c
 int sing_get_phantom_cb(FSingSet kvset,const char *key,CSingValueAllocator vacb,void **value,unsigned *vsize)
 int sing_get_phantom_cb_n(FSingSet kvset,const char *key,unsigned ksize,CSingValueAllocator vacb,void **value,unsigned *vsize)
 ```
@@ -494,7 +494,7 @@ SING_ERROR_IMPOSSIBLE_OPERATION - набор без фантомных ключ�
 SING_ERROR_CONNECTION_LOST - набор удален, \*value и \*vsize не меняются 
 
 ### sing_get_values_cb
-```c
+``` c
 int sing_get_values_cb(FSingSet *kvset,const char *const *keys,unsigned count,CSingValueAllocator vacb,void **values,unsigned *vsizes,int *results)
 int sing_get_values_cb_n(FSingSet *kvset,const char *const *keys,const unsigned *ksizes,unsigned count,CSingValueAllocator vacb,void **values,unsigned *vsizes,int *results)
 ```
@@ -522,7 +522,7 @@ SING_ERROR_NO_SET_MEMORY - не удается выделить страницу
 SING_ERROR_CONNECTION_LOST - набор удален. В этом случае ошибки содержание *value и *vsize не меняется  
 
 ### sing_get_value
-```c
+``` c
 int sing_get_value(FSingSet *kvset,const char *key,void *value,unsigned *vsize)
 int sing_get_value_n(FSingSet *kvset,const char *key,unsigned ksize,void *value,unsigned *vsize)
 ```
@@ -543,7 +543,7 @@ SING_ERROR_NO_SET_MEMORY - не удается выделить страницу
 SING_ERROR_CONNECTION_LOST - набор удален, *value и *vsize не меняются  
 
 ### sing_get_phantom
-```c
+``` c
 int sing_get_phantom(FSingSet *kvset,const char *key,void *value,unsigned *vsize)
 int sing_get_phantom_n(FSingSet *kvset,const char *key,unsigned ksize,void *value,unsigned *vsize)
 ```
@@ -565,7 +565,7 @@ SING_ERROR_IMPOSSIBLE_OPERATION - набор без фантомных ключ�
 SING_ERROR_CONNECTION_LOST - набор удален, *value и *vsize не меняются  
 
 ### sing_get_values
-```c
+``` c
 int sing_get_values(FSingSet *kvset,const char *const *keys,unsigned count,void *const *values,unsigned *vsizes,int *results)
 int sing_get_values_n(FSingSet *kvset,const char *const *keys,const unsigned *ksizes,unsigned count,void *const *values,unsigned *vsizes,int *results)
 ```
@@ -593,7 +593,7 @@ SING_ERROR_NO_SET_MEMORY - не удается выделить страницу
 SING_ERROR_CONNECTION_LOST - набор удален. В этом случае \*(vsize + i) и \*\*(value + i) не меняются  
 
 ### sing_get_values_simple
-```c
+``` c
 int sing_get_values_simple(FSingSet *kvset,const char *const *keys,unsigned count,void **values,unsigned *vsizes,int *results)
 int sing_get_values_simple_n(FSingSet *kvset,const char *const *keys,const unsigned *ksizes,unsigned count,void **values,unsigned *vsizes,int *results)
 ```
@@ -621,7 +621,7 @@ SING_ERROR_NO_SET_MEMORY - не удается выделить страницу
 SING_ERROR_CONNECTION_LOST - набор удален. В этом случае \*(vsize + i) и \*\*(value + i) не меняются  
 
 ### sing_get_values_same
-```c
+``` c
 int sing_get_values_same(FSingSet *kvset,const char *const *keys,unsigned count,void *values,unsigned vsize,int *results)
 int sing_get_values_same_n(FSingSet *kvset,const char *const *keys,const unsigned *ksizes,unsigned count,void *values,unsigned vsize,int *results)
 ```
@@ -646,7 +646,7 @@ SING_ERROR_NO_SET_MEMORY - не удается выделить страницу
 SING_ERROR_CONNECTION_LOST - набор удален. В этом случае \*(value + i) содержат 0  
 
 ### sing_key_present
-```c
+``` c
 int sing_key_present(FSingSet *kvset,const char *key)
 int sing_key_present_n(FSingSet *kvset,const char *key,unsigned ksize)
 ```
@@ -662,7 +662,7 @@ SING_RESULT_IMPOSSIBLE_KEY - невозможный для используем�
 SING_ERROR_CONNECTION_LOST - набор удален  
 
 ### sing_phantom_present
-```c
+``` c
 int sing_phantom_present(FSingSet *kvset,const char *key)
 int sing_phantom_present_n(FSingSet *kvset,const char *key,unsigned ksize)
 ```
@@ -679,7 +679,7 @@ SING_ERROR_IMPOSSIBLE_OPERATION - набор без фантомных ключ�
 SING_ERROR_CONNECTION_LOST - набор удален  
 
 ### sing_keys_present
-```c
+``` c
 int sing_keys_present(FSingSet *kvset,const char *const *keys,unsigned count,int *results)
 int sing_keys_present_n(FSingSet *kvset,const char *const *keys,const unsigned *ksizes,unsigned count,int *results)
 ```
@@ -698,7 +698,7 @@ n >= 0 - число найденных ключей. в этом случае:
 SING_ERROR_CONNECTION_LOST - набор удален
 
 ### sing_value_equal
-```c
+``` c
 int sing_value_equal(FSingSet *kvset,const char *key,const void *value,unsigned vsize)
 int sing_value_equal_n(FSingSet *kvset,const char *key,unsigned ksize,const void *value,unsigned vsize)
 ```
@@ -717,7 +717,7 @@ SING_RESULT_VALUE_DIFFER - ключ найден но значение отли�
 SING_ERROR_CONNECTION_LOST - набор удален  
 
 ### sing_phantom_equal
-```c
+``` c
 int sing_phantom_equal(FSingSet *kvset,const char *key,const void *value,unsigned vsize)
 int sing_phantom_equal_n(FSingSet *kvset,const char *key,unsigned ksize,const void *value,unsigned vsize)
 ```
@@ -737,7 +737,7 @@ SING_ERROR_IMPOSSIBLE_OPERATION - набор без фантомных ключ�
 SING_ERROR_CONNECTION_LOST - набор удален  
 
 ### sing_values_equal
-```c
+``` c
 int sing_values_equal(FSingSet *kvset,const char *const *keys,unsigned count,const void **values,const unsigned *vsizes,int *results)
 int sing_values_equal_n(FSingSet *kvset,const char *const *keys,const unsigned *ksizes,unsigned count,const void **values,const unsigned *vsizes,int *results)
 ```
@@ -759,7 +759,7 @@ n >= 0 - число совпавших ключей. в этом случае:
 SING_ERROR_CONNECTION_LOST - набор удален  
 
 ### sing_get_valueTYPE, sing_get_pointer
-```c
+``` c
 int sing_get_value32i(FSingSet *kvset,const char *key,int32_t *value)
 int sing_get_value32i_n(FSingSet *kvset,const char *key,unsigned ksize,int32_t *value)
 int sing_get_value32u(FSingSet *kvset,const char *key,uint32_t *value)
@@ -789,7 +789,7 @@ SING_RESULT_IMPOSSIBLE_KEY - невозможный для используем�
 SING_ERROR_CONNECTION_LOST - набор удален, \*value содержит 0  
 
 ### sing_get_valuesTYPE, sing_get_pointers
-```c
+``` c
 int sing_get_values32i(FSingSet *kvset,const char *const *keys,unsigned count,int32_t *values,int *results)
 int sing_get_values32i_n(FSingSet *kvset,const char *const *keys,const unsigned *ksizes,unsigned count,int32_t *values,int *results)
 int sing_get_values32u(FSingSet *kvset,const char *const *keys,unsigned count,uint32_t *values,int *results)
@@ -899,7 +899,7 @@ SING_ERROR_IMPOSSIBLE_OPERATION - набор без фантомных ключ�
 SING_ERROR_CONNECTION_LOST - набор удален
 
 ### sing_add_keys, sing_set_keys
-```c
+``` c
 int sing_add_keys(FSingSet *kvset,const char *const *keys,unsigned count,const void *const *values,const unsigned *vsizes,int *results)
 int sing_add_keys_n(FSingSet *kvset,const char *const *keys,const unsigned *ksizes,unsigned count,const void *const *values,const unsigned *vsizes,int *results)
 int sing_set_keys(FSingSet *kvset,const char *const *keys,unsigned count,const void *const *values,const unsigned *vsizes,int *results)
@@ -923,7 +923,7 @@ SING_ERROR_NO_SET_MEMORY - не удается выделить страницу
 SING_ERROR_CONNECTION_LOST - набор удален. В этом случае \*(value + i) не меняется  
 
 ### sing_set_keyTYPE, sing_set_pointer
-```c
+``` c
 int sing_set_key32i(FSingSet *kvset,const char *key,int32_t value)
 int sing_set_key32u(FSingSet *kvset,const char *key,uint32_t value)
 int sing_set_key32f(FSingSet *kvset,const char *key,float value)
@@ -945,7 +945,7 @@ SING_ERROR_NO_SET_MEMORY - не удается выделить страницу
 SING_ERROR_CONNECTION_LOST - набор удален  
 
 ### sing_del_key
-```c
+``` c
 int sing_del_key(FSingSet *kvset,const char *key) 
 int sing_del_key_n(FSingSet *kvset,const char *key,unsigned ksize) 
 ```
@@ -964,7 +964,7 @@ SING_ERROR_NO_SET_MEMORY - не удается выделить страницу
 SING_ERROR_CONNECTION_LOST - набор удален  
 
 ### sing_del_phantom
-```c
+``` c
 int sing_del_phantom(FSingSet *kvset,const char *key) 
 int sing_del_phantom_n(FSingSet *kvset,const char *key,unsigned ksize) 
 ```
@@ -982,7 +982,7 @@ SING_ERROR_IMPOSSIBLE_OPERATION - набор без фантомных ключ�
 SING_ERROR_CONNECTION_LOST - набор удален  
 
 ### sing_del_full
-```c
+``` c
 int sing_del_full(FSingSet *kvset,const char *key) 
 int sing_del_full_n(FSingSet *kvset,const char *key,unsigned ksize) 
 ```
@@ -999,7 +999,7 @@ SING_ERROR_NO_SET_MEMORY - не удается выделить страницу
 SING_ERROR_CONNECTION_LOST - набор удален  
 
 ### sing_del_keys
-```c
+``` c
 int sing_del_keys(FSingSet *kvset,const char *const *keys,unsigned count,int *results) 
 int sing_del_keys_n(FSingSet *kvset,const char *const *keys,const unsigned *ksizes,unsigned count,int *results) 
 ```
@@ -1019,7 +1019,7 @@ SING_ERROR_NO_SET_MEMORY - не удается выделить страницу
 SING_ERROR_CONNECTION_LOST - набор удален. В этом случае \*(value + i) не меняется  
 
 ### CSingIterateCallback
-```c
+``` c
 typedef int(* CSingIterateCallback)(const char *key,const void *value,unsigned *vsize,void *new_value,void *param)
 ```
 Описание коллбека обработки ключа при переборе ключей набора. Использование вызовов библиотеки в коллбеке приводит к неопределенному поведению.
@@ -1035,7 +1035,7 @@ typedef int(* CSingIterateCallback)(const char *key,const void *value,unsigned *
 \< 0 - ошибка, нужно закончить перебор ключей  
 
 ### sing_iterate
-```c
+``` c
 int sing_iterate(FSingSet *kvset,CSingIterateCallback cb,void *param)
 ```
 вызывает функцию cb для каждого ключа в наборе. Хотя это пишущий вызов, работающий под соответствующими блокировками, но его использование 

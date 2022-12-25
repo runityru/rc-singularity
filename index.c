@@ -32,26 +32,17 @@
 
 const char *FILE_SIGNATURE __attribute__ ((aligned (4))) = "TC01"; // Codec name and major version
 
-#define HS_COUNT 25
-
-const unsigned HASH_TABLE_SIZES[HS_COUNT] = {547,1117,2221,4447,8269,16651,33391,65713,131071,524287,1336337,2014997,2494993,4477457,6328548,8503057,29986577,40960001,
-				65610001,126247697,193877777,303595777,384160001,406586897,562448657};
-
 // Выделяет и инициализирует структуру
 
-FSingSet *_alloc_index(void)
+void _init_index(FSingSet *rv,int keep_filenames)
 	{
 	int i;
-	FSingSet *rv = NULL;
-
-	if (posix_memalign((void **)&rv,CACHE_LINE_SIZE,sizeof(FSingSet)))
-		return NULL;
-
 	rv->head = MAP_FAILED;
 	rv->index_fd = rv->pages_fd = -1;
 	rv->disk_index_fd = rv->disk_pages_fd = -1;
 	rv->used_cpages = rv->real_cpages = NULL;
-	memset(&rv->filenames,0,sizeof(FFileNames));
+	if (!keep_filenames)
+		memset(&rv->filenames,0,sizeof(FFileNames));
 	rv->protect_lock.whole = 0LL;
 	rv->last_error[0] = 0;
 
@@ -59,29 +50,35 @@ FSingSet *_alloc_index(void)
 		{ rv->pages[i] = MAP_FAILED; }
 
 	rv->old_data = NULL;
-	
+	}
+
+FSingSet *_alloc_index(void)
+	{
+	FSingSet *rv = NULL;
+	if (posix_memalign((void **)&rv,CACHE_LINE_SIZE,sizeof(FSingSet)))
+		return NULL;
 	return rv;
 	}
 
 static int _create_names(FFileNames *filenames,FSingConfig *config,const char *setname,const char *suffix,unsigned flags)
 	{
 	if (!suffix) suffix = "";
-	int fsize = strlen(setname) + strlen(suffix) + 4 + 1;
-	int size = (fsize + strlen(SYSTEM_SHM_PATH)) * 2;
+	int fsize = strlen(setname) + strlen(suffix) + sizeof(".idx"); // ".idx" and terminating 0
+	int size = (sizeof(SYSTEM_SHM_PATH) + fsize);
 	char *bl;
 	if (!(flags & UF_NOT_PERSISTENT))
 		{
 		bl = config->base_location ? config->base_location : "./";
-		size += (fsize + strlen(bl)) * 2;
+		size += (strlen(bl) + fsize);
 		}
 	
-	if (!(filenames->index_shm_file = (char *)malloc(size)))
+	if (!(filenames->index_shm_file = (char *)malloc(size * 2)))
 		return 1;
 	filenames->pages_shm_file = filenames->index_shm_file + sprintf(filenames->index_shm_file,"%s%s.idx%s",SYSTEM_SHM_PATH,setname,suffix) + 1;
 	int psf_size = sprintf(filenames->pages_shm_file,"%s%s.dat%s",SYSTEM_SHM_PATH,setname,suffix) + 1;
 
-	filenames->index_shm = filenames->index_shm_file + strlen(SYSTEM_SHM_PATH);
-	filenames->pages_shm = filenames->pages_shm_file + strlen(SYSTEM_SHM_PATH);
+	filenames->index_shm = filenames->index_shm_file + sizeof(SYSTEM_SHM_PATH) - 1;
+	filenames->pages_shm = filenames->pages_shm_file + sizeof(SYSTEM_SHM_PATH) - 1;
 
 	if (!(flags & UF_NOT_PERSISTENT))
 		{
@@ -90,6 +87,12 @@ static int _create_names(FFileNames *filenames,FSingConfig *config,const char *s
 		sprintf(filenames->pages_file,"%s%s.dat%s",bl,setname,suffix);
 		}
 	return 0;
+	}
+
+static inline void _strcpycat(char *dest,const char *src1,unsigned src1len,const char *src2)
+	{
+	memcpy(dest,src1,src1len);
+	strcpy(dest + src1len,src2);
 	}
 
 static int _copy_names(FFileNames *old_names,FFileNames *new_names,const char *old_suffix,const char *new_suffix)
@@ -106,27 +109,19 @@ static int _copy_names(FFileNames *old_names,FFileNames *new_names,const char *o
 		fbaselen = strlen(old_names->index_file) - osuflen;
 		size += fbaselen + nsuflen + 1;
 		}
-	size *= 2;
-	if (!(new_names->index_shm_file = (char *)malloc(size)))
+	if (!(new_names->index_shm_file = (char *)malloc(size * 2)))
 		return 1;
-	memcpy(new_names->index_shm_file,old_names->index_shm_file,sbaselen);
-	strcpy(new_names->index_shm_file + sbaselen,new_suffix);
+	_strcpycat(new_names->index_shm_file,old_names->index_shm_file,sbaselen,new_suffix);
 	new_names->pages_shm_file = new_names->index_shm_file + sbaselen + nsuflen + 1;
-	memcpy(new_names->pages_shm_file,old_names->pages_shm_file,sbaselen);
-	strcpy(new_names->pages_shm_file + sbaselen,new_suffix);
+	_strcpycat(new_names->pages_shm_file,old_names->pages_shm_file,sbaselen,new_suffix);
 	new_names->index_shm = new_names->index_shm_file + (old_names->index_shm - old_names->index_shm_file);
 	new_names->pages_shm = new_names->pages_shm_file + (old_names->pages_shm - old_names->pages_shm_file);
-	if (old_names->index_file)
-		{
-		new_names->index_file = new_names->pages_shm_file + sbaselen + nsuflen + 1;
-		memcpy(new_names->index_file,old_names->index_file,fbaselen);
-		strcpy(new_names->index_file + fbaselen,new_suffix);
-		new_names->pages_file = new_names->index_file + fbaselen + nsuflen + 1;
-		memcpy(new_names->pages_file,old_names->pages_file,fbaselen);
-		strcpy(new_names->pages_file + fbaselen,new_suffix);
-		}
-	else
-		new_names->index_file = new_names->pages_file = NULL;
+	if (!old_names->index_file)
+		return new_names->index_file = new_names->pages_file = NULL,0;
+	new_names->index_file = new_names->pages_shm_file + sbaselen + nsuflen + 1;
+	_strcpycat(new_names->index_file,old_names->index_file,fbaselen,new_suffix);
+	new_names->pages_file = new_names->index_file + fbaselen + nsuflen + 1;
+	_strcpycat(new_names->pages_file,old_names->pages_file,fbaselen,new_suffix);
 	return 0;
 	}
 
@@ -161,6 +156,7 @@ FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,
 
 	if (!(rv = _alloc_index()))
 		{ cnf_set_error(config,"not enougth memory for set initialization"); return NULL; }
+	_init_index(rv,0);
 
 	if (!setname)
 		{
@@ -282,8 +278,7 @@ FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,
 	else
 		rv->real_cpages = NULL;
 
-	head->first_pf_spec_page = NO_PAGE;
-	head->first_empty_page = NO_PAGE;
+	head->first_pf_spec_page = head->first_empty_page = NO_PAGE;
 
 	if ((rv->pages[0] = (unsigned *)mmap(NULL,PAGE_SIZE_BYTES,PROT_WRITE | PROT_READ, map_flags, pfd, 0)) == MAP_FAILED)
 		{ cnf_set_error(config,"can not map collision table"); goto idx_empty_index_fail; }
@@ -301,25 +296,24 @@ idx_empty_index_fail:
 	if (rv) 
 		{
 		if (rv->filenames.index_file)
-			{
-			unlink(rv->filenames.index_file);
-			unlink(rv->filenames.pages_file);
-			}
+			unlink(rv->filenames.index_file), unlink(rv->filenames.pages_file);
 		if (rv->filenames.index_shm)
-			{
-			shm_unlink(rv->filenames.index_shm);
-			shm_unlink(rv->filenames.pages_shm);
-			}
+			shm_unlink(rv->filenames.index_shm), shm_unlink(rv->filenames.pages_shm);
 		idx_unlink_set(rv);
+		free(rv);
 		}
-
 	return NULL;
 	}
+
+#define BACKUP_FILE_LINKED 1
+#define BACKUP_FILE_MOVED 2
 
 static int _file_relink(FSingSet *kvset)
 	{
 	unsigned bkstate[4] = {0,0,0,0};
-	FFileNames bk_names = {NULL},nnames;
+	FFileNames bk_names = {NULL}; // Names of backup files
+	FFileNames nnames; // Names of target files
+	int i;
 
 	if (_copy_names(&kvset->filenames,&nnames,".tmp",NULL))
 		return 1;
@@ -328,10 +322,10 @@ static int _file_relink(FSingSet *kvset)
 		if (_copy_names(&kvset->filenames,&bk_names,".tmp",".bk") || 
 				link(kvset->old_data->filenames.index_shm_file,bk_names.index_shm_file))
 			goto _file_relink_fail; 
-		bkstate[0] = 1;
+		bkstate[0] = BACKUP_FILE_LINKED;
 		if (link(kvset->old_data->filenames.pages_shm_file,bk_names.pages_shm_file))
 			goto _file_relink_fail; 
-		bkstate[1] = 1;
+		bkstate[1] = BACKUP_FILE_LINKED;
 
 		if (kvset->old_data->filenames.index_file)
 			{
@@ -339,26 +333,26 @@ static int _file_relink(FSingSet *kvset)
 				{
 				if (link(kvset->old_data->filenames.index_file,bk_names.index_file))
 					goto _file_relink_fail; 
-				bkstate[2] = 1;
+				bkstate[2] = BACKUP_FILE_LINKED;
 				if (link(kvset->old_data->filenames.pages_file,bk_names.pages_file))
 					goto _file_relink_fail;
-				bkstate[3] = 1;
+				bkstate[3] = BACKUP_FILE_LINKED;
 				}
 			else
 				{
 				if (rename(kvset->old_data->filenames.index_file,bk_names.index_file))
 					goto _file_relink_fail; 
-				bkstate[2] = 2;
+				bkstate[2] = BACKUP_FILE_MOVED;
 				if (rename(kvset->old_data->filenames.pages_file,bk_names.pages_file))
 					goto _file_relink_fail;
-				bkstate[3] = 2;
+				bkstate[3] = BACKUP_FILE_MOVED;
 				}
 			}
 		}
 
 	if (rename(kvset->filenames.index_shm_file,nnames.index_shm_file))
 		goto _file_relink_fail;
-	bkstate[0] *= 2;
+	bkstate[0] *= 2; // It can be 0 => 0 or BACKUP_FILE_LINKED => BACKUP_FILE_MOVED, not BACKUP_FILE_MOVED => 4
 	if (rename(kvset->filenames.pages_shm_file,nnames.pages_shm_file))
 		goto _file_relink_fail;
 	bkstate[1] *= 2;
@@ -366,7 +360,7 @@ static int _file_relink(FSingSet *kvset)
 		{
 		if (rename(kvset->filenames.index_file,nnames.index_file))
 			goto _file_relink_fail;
-		bkstate[2] *= 2;
+		bkstate[2] *= 2;  
 		if (rename(kvset->filenames.pages_file,nnames.pages_file))
 			goto _file_relink_fail;
 		bkstate[3] *= 2;
@@ -382,34 +376,17 @@ static int _file_relink(FSingSet *kvset)
 		memcpy(&kvset->old_data->filenames.index_shm_file,&bk_names,sizeof(FFileNames));
 		free(tofree);
 		}
-	if (bkstate[3]) unlink(bk_names.pages_file);
-	if (bkstate[2]) unlink(bk_names.index_file);
-	if (bkstate[1]) unlink(bk_names.pages_shm_file);
-	if (bkstate[0]) unlink(bk_names.index_shm_file);
-
+	for (i = 0; i <  4; i++)
+		if (bkstate[i]) unlink(bk_names.names[i]);
 	return 0;
 
 _file_relink_fail:
-	switch (bkstate[3])
-		{
-		case 1: unlink(bk_names.pages_file); break;
-		case 2: rename(bk_names.pages_file,nnames.pages_file);
-		}
-	switch (bkstate[2])
-		{
-		case 1: unlink(bk_names.index_file); break;
-		case 2: rename(bk_names.index_file,nnames.index_file);
-		}
-	switch (bkstate[1])
-		{
-		case 1: unlink(bk_names.pages_shm_file); break;
-		case 2: rename(bk_names.pages_shm_file,nnames.pages_shm_file);
-		}
-	switch (bkstate[0])
-		{
-		case 1: unlink(bk_names.index_shm_file); break;
-		case 2: rename(bk_names.index_shm_file,nnames.index_shm_file);
-		}
+	for (i = 3; i >= 0; i--)
+		switch (bkstate[i])
+			{
+			case BACKUP_FILE_LINKED: unlink(bk_names.pages_file); break;
+			case BACKUP_FILE_MOVED: rename(bk_names.pages_file,nnames.pages_file);
+			}
 
 	if (nnames.index_shm_file)
 		free(nnames.index_shm_file);
@@ -417,6 +394,9 @@ _file_relink_fail:
 		free(bk_names.index_shm_file);
 	return 1;
 	}
+
+#undef BACKUP_FILE_LINKED
+#undef BACKUP_FILE_MOVED
 
 int idx_creation_done(FSingSet *kvset,unsigned lock_mode)
 	{
@@ -463,42 +443,25 @@ int idx_creation_done(FSingSet *kvset,unsigned lock_mode)
 	return 0;
 	}
 	
-FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
+static int _link_set(FSingSet *rv,FSingConfig *config)
 	{
-	FSingSet *rv = NULL;
 	FSetHead *head;
 	FHeadSizes head_sizes;
-	element_type base_head_size,counters_size,page_types_size,locks_size;
+	element_type base_head_size = INDEX_HEAD_DISK_PAGES * DISK_PAGE_BYTES;
+	element_type counters_size,page_types_size,locks_size;
 	char *index_share,*extra_struct;
 	unsigned i;
 	int share_mode = O_RDWR;
 	int file_locked = 0;
 	int ifd = -1;
-	base_head_size = INDEX_HEAD_DISK_PAGES * DISK_PAGE_BYTES;
-	
-	if (!setname)
-		return cnf_set_error(config,"can not link to unnamed set"), NULL;
 
-	if ((flags & CF_READER) && (flags & (CF_UNLOAD_ON_CLOSE | CF_KEEP_LOCK)))
-		return cnf_set_error(config,"incompatible flags"), NULL;
-
-	if (!(rv = _alloc_index()))
-		return cnf_set_error(config,"not enougth memory for index struct"), NULL;
-
-	if (_create_names(&rv->filenames,config,setname,NULL,0))
-		{ cnf_set_error(config,"not enougth memory for set initialization"); goto sing_link_set_fail; } 
-
-	if (flags & CF_READER)
-		flags |= CF_FULL_LOAD;
-	rv->conn_flags = (config->connect_flags | flags) & CF_MASK;
 	rv->is_private = 0;
-
 	if ((ifd = shm_open(rv->filenames.index_shm,O_RDWR | O_CREAT, FILE_PERMISSIONS)) == -1)
-		{ cnf_set_formatted_error(config,"can not open set %s",rv->filenames.index_shm); goto sing_link_set_fail; }
+		{ cnf_set_formatted_error(config,"can not open set %s",rv->filenames.index_shm); goto _link_set_fail; }
 	
 	// Блочим шару (возможно мы ее только что создали, надо проверить)
 	if (file_lock(ifd,LOCK_EX))
-		{ cnf_set_error(config,"flock failed"); goto sing_link_set_fail; }
+		{ cnf_set_error(config,"flock failed"); goto _link_set_fail; }
 	
 	if (file_read(ifd,&head_sizes,sizeof(FHeadSizes)) != sizeof(FHeadSizes))
 		{ // Шары не было, пересоздадим из дисковой версии, если такая есть
@@ -507,43 +470,43 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 		file_locked = 1;
 		
 		if ((rv->disk_index_fd = open(rv->filenames.index_file,O_RDWR)) == -1)
-			{ cnf_set_formatted_error(config,"can not open file %s",rv->filenames.index_file); goto sing_link_set_fail; }
+			{ cnf_set_formatted_error(config,"can not open file %s",rv->filenames.index_file); goto _link_set_fail; }
 
 		if (file_read(rv->disk_index_fd,&head_sizes,sizeof(FHeadSizes)) != sizeof(FHeadSizes)) // Читаем полный размер из дискового файла
-			{ cnf_set_error(config,"can not read full head set size"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"can not read full head set size"); goto _link_set_fail; }
 
 		if (ftruncate(ifd,head_sizes.mem_file_size)) // Расширяем в памяти
-			{ cnf_set_error(config,"can not truncate hash table"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"can not truncate hash table"); goto _link_set_fail; }
 
 		if ((index_share = (char *)mmap(NULL,head_sizes.mem_file_size,PROT_WRITE | PROT_READ, MAP_SHARED, ifd, 0)) == MAP_FAILED)
-			{ cnf_set_error(config,"can not map hash table"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"can not map hash table"); goto _link_set_fail; }
 
 		rv->head = head = (FSetHead *)index_share;
 		head->sizes = head_sizes;
 		to_read = base_head_size - sizeof(FHeadSizes);
 		// Дочитываем заголовок
 		if (file_read(rv->disk_index_fd,&index_share[sizeof(FHeadSizes)],to_read) != to_read)
-			{ cnf_set_error(config,"can not read set head from disk"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"can not read set head from disk"); goto _link_set_fail; }
 		if (head->signature != *((unsigned *)FILE_SIGNATURE))
-			{ cnf_set_error(config,"incompatible set format"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"incompatible set format"); goto _link_set_fail; }
 		if (head->use_flags & UF_NOT_PERSISTENT)
-			{ cnf_set_error(config,"set with disk copy has NOT_PERSISTENT flag"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"set with disk copy has NOT_PERSISTENT flag"); goto _link_set_fail; }
 		if (head->wip)
-			{ cnf_set_error(config,"disk copy of set is broken"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"disk copy of set is broken"); goto _link_set_fail; }
 		}
 	else
 		{
 		file_lock(ifd,LOCK_UN);
 
 		if ((index_share = (char *)mmap(NULL,head_sizes.mem_file_size,PROT_WRITE | PROT_READ, MAP_SHARED, ifd, 0)) == MAP_FAILED)
-			{ cnf_set_error(config,"can not map hash table"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"can not map hash table"); goto _link_set_fail; }
 		rv->head = head = (FSetHead *)index_share;
 		if (head->signature != *((unsigned *)FILE_SIGNATURE))
-			{ cnf_set_error(config,"incompatible share format"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"incompatible share format"); goto _link_set_fail; }
 		if (!(head->use_flags & UF_NOT_PERSISTENT))
 			{
 			if ((rv->disk_index_fd = open(rv->filenames.index_file,O_RDWR)) == -1)
-				{ cnf_set_formatted_error(config,"can not open file %s",rv->filenames.index_file); goto sing_link_set_fail; }
+				{ cnf_set_formatted_error(config,"can not open file %s",rv->filenames.index_file); goto _link_set_fail; }
 			}
 		else
 			rv->filenames.index_file = rv->filenames.pages_file = NULL;
@@ -553,8 +516,8 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 		{
 		case LM_READ_ONLY:
 		case LM_NONE:
-			if (flags & CF_KEEP_LOCK)
-				{ cnf_set_error(config,"incompatible flags and lock mode"); goto sing_link_set_fail; }
+			if (rv->conn_flags & CF_KEEP_LOCK)
+				{ cnf_set_error(config,"incompatible flags and lock mode"); goto _link_set_fail; }
 			break;
 		}
 
@@ -568,7 +531,7 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 		page_types_size = PAGE_TYPES_DISK_PAGES * DISK_PAGE_BYTES;
 		rv->page_types = (unsigned char *)index_share;
 		if (file_locked && file_read(rv->disk_index_fd,index_share,page_types_size) != page_types_size)
-			{ cnf_set_error(config,"can not read page types from disk"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"can not read page types from disk"); goto _link_set_fail; }
 		index_share += page_types_size;
 		}
 	else
@@ -579,7 +542,7 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 		counters_size = align_up(COUNTERS_SIZE(head->hashtable_size) * sizeof(unsigned),DISK_PAGE_BYTES);
 		rv->counters = (unsigned *)index_share;
 		if (file_locked && file_read(rv->disk_index_fd,index_share,counters_size) != counters_size)
-			{ cnf_set_error(config,"can not read counters from disk"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"can not read counters from disk"); goto _link_set_fail; }
 		index_share += counters_size;
 		}
 	else
@@ -592,44 +555,43 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 
 	// Открывем шару и файл страниц
 	if ((rv->pages_fd = shm_open(rv->filenames.pages_shm,share_mode, FILE_PERMISSIONS)) == -1)
-		{ cnf_set_formatted_error(config,"can not open share %s",rv->filenames.pages_shm); goto sing_link_set_fail; }
+		{ cnf_set_formatted_error(config,"can not open share %s",rv->filenames.pages_shm); goto _link_set_fail; }
 
 	if (!(head->use_flags & UF_NOT_PERSISTENT))
 		{
 		rv->real_cpages = rv->used_cpages = (FChangedPages *)extra_struct;
 		if ((rv->disk_pages_fd = open(rv->filenames.pages_file,O_RDWR, FILE_PERMISSIONS)) == -1)
-			{ cnf_set_formatted_error(config,"can not open file %s",rv->filenames.pages_file); goto sing_link_set_fail; }
+			{ cnf_set_formatted_error(config,"can not open file %s",rv->filenames.pages_file); goto _link_set_fail; }
 		}
 	
 	if (file_locked)
 		{
 		if (ftruncate(rv->pages_fd,head->pcnt * PAGE_SIZE_BYTES)) 
-			{ cnf_set_error(config,"can not truncate collision table"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"can not truncate collision table"); goto _link_set_fail; }
 
 		cp_init(rv->used_cpages,page_types_size,counters_size);
 		if (rv->conn_flags & CF_FULL_LOAD)
 			{
 			element_type hash_table_size = align_up((head->hashtable_size + 1) / 2 * sizeof(FKeyHeadGeneral) * KEYHEADS_IN_BLOCK,DISK_PAGE_BYTES);
 			if (file_read(rv->disk_index_fd,index_share,hash_table_size) != hash_table_size)
-				{ cnf_set_error(config,"can not read hash table from disk"); goto sing_link_set_fail; }
+				{ cnf_set_error(config,"can not read hash table from disk"); goto _link_set_fail; }
 			cp_mark_hashtable_loaded(rv);
 
 			if ((rv->pages[0] = (element_type *)mmap(NULL,head_sizes.mem_file_size,PROT_WRITE | PROT_READ, MAP_SHARED, rv->pages_fd, 0)) == MAP_FAILED)
-				{ cnf_set_error(config,"can not map collision table"); goto sing_link_set_fail; }
+				{ cnf_set_error(config,"can not map collision table"); goto _link_set_fail; }
 			for (i = 1; i < head->pcnt; i++)
 				rv->pages[i] = rv->pages[0] + i * PAGE_SIZE;
 			cp_mark_pages_loaded(rv);
 			}
+		lck_init_locks(rv);
 		}
 
-	if ((rv->conn_flags & CF_KEEP_LOCK) && lck_manualLock(rv))
-		{ cnf_set_error(config,"can not set manual lock"); goto sing_link_set_fail; }
+   int code;
+	if ((rv->conn_flags & CF_KEEP_LOCK) && (code = lck_manualLock(rv)))
+		{ cnf_set_formatted_error(config,"can not set manual lock, code %d",code); goto _link_set_fail; }
 		
 	if (file_locked)
-		{
-		file_lock(ifd,LOCK_UN);
-		file_locked = 0;
-		}
+		file_lock(ifd,LOCK_UN), file_locked = 0;
 
 	close(ifd);
 	if (rv->conn_flags & CF_READER)
@@ -640,23 +602,62 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 			close(rv->disk_pages_fd), rv->disk_pages_fd = -1;
 		rv->read_only = 1;
 		}
-	return rv;
+	return 0;
 	
-sing_link_set_fail:
+_link_set_fail:
 	if (file_locked && ifd != -1)
 		{
 		shm_unlink(rv->filenames.index_shm); // Что-то пошло не так, удалим основную шару, т.к. в других файлах может быть мусор
 		file_lock(ifd,LOCK_UN);
 		}
 	if (ifd != -1) close(ifd);
-	if (rv) 
-		idx_unlink_set(rv);
+	idx_unlink_set(rv);
+	return 1;
+	}
 
-	return NULL;
+FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
+	{
+	FSingSet *rv = NULL;
+
+	if (!setname)
+		return cnf_set_error(config,"can not link to unnamed set"), NULL;
+
+	if ((flags & CF_READER) && (flags & (CF_UNLOAD_ON_CLOSE | CF_KEEP_LOCK)))
+		return cnf_set_error(config,"incompatible flags"), NULL;
+
+	if (!(rv = _alloc_index()))
+		return cnf_set_error(config,"not enougth memory for index struct"), NULL;
+	_init_index(rv,0);
+
+	if (_create_names(&rv->filenames,config,setname,NULL,0))
+		{ 
+		cnf_set_error(config,"not enougth memory for set initialization"); 
+		free(rv);
+		return NULL;
+		} 
+
+	if (flags & CF_READER)
+		flags |= CF_FULL_LOAD;
+	rv->conn_flags = (config->connect_flags | flags) & CF_MASK;
+	if (_link_set(rv,config))
+		return free(rv),NULL;
+	return rv;
 	}
 
 int idx_relink_set(FSingSet *index)
 	{
+	FSingSet bk_index __attribute__((aligned(CACHE_LINE_SIZE)));
+	memcpy(&bk_index,index,sizeof(FSingSet));
+	_copy_names(&index->filenames,&bk_index.filenames,NULL,NULL);
+	_init_index(index,1);
+   FSingConfig config = {0};
+
+	if (!_link_set(index,&config))
+		{
+		idx_unlink_set(&bk_index);
+		return 0;
+		}
+	memcpy(index,&bk_index,sizeof(FSingSet));
 	return 1;
 	}
 	
@@ -685,7 +686,6 @@ void idx_unlink_set(FSingSet *index)
 	if (index->disk_index_fd != -1) close(index->disk_index_fd); 	// Файл индекса на диске
 	if (index->disk_pages_fd != -1) close(index->disk_pages_fd); 	// Файл страниц на диске
 	if (index->filenames.index_shm_file) free(index->filenames.index_shm_file);
-	free(index);
 	}
 
 int idx_unload_set(FSingSet *kvset,int del_from_disk)
@@ -715,6 +715,7 @@ int idx_unload_set(FSingSet *kvset,int del_from_disk)
 		}
 	lck_deinit_locks(kvset); // Deleting mutex and removing all locks
 	idx_unlink_set(kvset);
+	free(kvset);
 	return 0;
 	}
 
@@ -2383,12 +2384,8 @@ static int dump_hash_chain(FSingSet *index,unsigned hash,FWriteBufferSet *wbs)
 		}
 	inum = key_data.links_array.links[ht_chain->link_num];
 	if (inum == KH_ZERO_REF)
-		{
-		rlock.keep = 0;
-		if (!lck_readerUnlock(index->lock_set,&rlock)) 
-			return 1;
 		goto dump_hash_chain_check_last;
-		}
+
 process_hash_chain_next_cycle:
 	last_block = (FKeyHeadGeneral *)regionPointer(index,KH_BLOCK_IDX(inum),KH_BLOCK_SIZE);
 	hnum = KH_BLOCK_NUM(inum);
@@ -2403,10 +2400,10 @@ process_hash_chain_next_cycle:
 			}
 		last_size = key_output(index,key_data,wbs);
 		dumped[dumpedcnt++] = key_data.whole;
-		if (!lck_readerUnlockCond(index->lock_set,&rlock,hash))
-			goto dump_hash_chain_exit;
 		if (key_data.fields.chain_stop)
 			goto dump_hash_chain_check_last; // It was the last key in chain
+		if (!lck_readerUnlockCond(index->lock_set,&rlock,hash))
+			goto dump_hash_chain_exit;
 		}
 	key_data.whole = __atomic_load_n(&last_block[KH_BLOCK_LAST].whole,__ATOMIC_RELAXED);
 	if (!key_data.fields.space_used)
@@ -2429,6 +2426,10 @@ process_hash_chain_next_cycle:
 		goto dump_hash_chain_exit;
 
 dump_hash_chain_check_last:
+   rlock.keep = 0;
+	if (!lck_readerUnlock(index->lock_set,&rlock))
+		goto dump_hash_chain_exit;
+
 	rv = 0;
 	if (dumpedcnt > 2)
 		{

@@ -222,13 +222,19 @@ FSingSet *sing_create_set(const char *setname,const FSingCSVFile *csv_file,unsig
 	off_t filesize = 0;
 	FSingConfig *used_config = config;
 
+	if (!lock_mode)
+		lock_mode = setname ? LM_SIMPLE : LM_NONE;
+
 	switch(lock_mode)
 		{
-		case LM_READ_ONLY:
-		case LM_NONE:
+		case LM_READ_ONLY: case LM_NONE:
 			if (flags & CF_KEEP_LOCK)
 				return cnf_set_error(config,"incompatible flags and lock mode"), NULL;
 			break;
+      case LM_SIMPLE: case LM_PROTECTED: case LM_FAST:
+         break;
+      default:
+   		return cnf_set_error(config,"invalid lock mode"), NULL;
 		}
 
 	if (!used_config && !(used_config = sing_config_get_default()))
@@ -241,8 +247,6 @@ FSingSet *sing_create_set(const char *setname,const FSingCSVFile *csv_file,unsig
 		if (!keys_count)
 			keys_count = fp_countKeys(sourceRbs,filesize) / 4;
 		}
-	if (!lock_mode)
-		lock_mode = setname ? LM_SIMPLE : LM_NONE;
 
 	if ((index = idx_create_set(setname,keys_count,flags,used_config)))
 		{
@@ -280,6 +284,7 @@ void sing_unlink_set(FSingSet *kvset)
 	if (lck_manualPresent(kvset))
 		lck_manualUnlock(kvset,0,NULL);
 	idx_unlink_set(kvset);
+	free(kvset);
 	}
 
 int sing_unload_set(FSingSet *kvset)
@@ -504,7 +509,7 @@ int sing_intersect_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file)
 	return _sing_marks_work(kvset,csv_file,NULL,SMW_INTERSECT_REPLACE);
 	}
 
-int sing_dump(FSingSet *index,char *outfile,unsigned flags)
+int sing_dump(FSingSet *index,char *outfile)
 	{
 	FWriteBufferSet *wbs = fbw_create(outfile);
 	if (!wbs) 

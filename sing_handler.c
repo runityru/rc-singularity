@@ -206,7 +206,7 @@ int main(int argc, char *argv[])
 				if (opdata->flags & OF_FILEREPLACE)
 					source_replacement = opdata->file_op.filename;
 				break;
-			case SO_Dump: res = sing_dump(shmIndex,opdata->result_file,opdata->flags); break;
+			case SO_Dump: res = sing_dump(shmIndex,opdata->result_file); break;
 			case SO_MaxRead:
 			case SO_None:
 				break;
