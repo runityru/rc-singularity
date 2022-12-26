@@ -3,6 +3,8 @@ Major - data store format
 Minor - incompatible API changes
 Release - fixes, performance improvement, API additions
 
+0.9.14 - Fixed minor bug with filenames
+
 0.9.13 - sets try relink from disk copy on memory share deletion now. Fixed bug with self locking in sing_dump. Fixed bug with changes mask in index. 
         Fixed uninitialized mutex when restore from disk copy
 

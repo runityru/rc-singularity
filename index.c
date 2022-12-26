@@ -114,8 +114,8 @@ static int _copy_names(FFileNames *old_names,FFileNames *new_names,const char *o
 	_strcpycat(new_names->index_shm_file,old_names->index_shm_file,sbaselen,new_suffix);
 	new_names->pages_shm_file = new_names->index_shm_file + sbaselen + nsuflen + 1;
 	_strcpycat(new_names->pages_shm_file,old_names->pages_shm_file,sbaselen,new_suffix);
-	new_names->index_shm = new_names->index_shm_file + (old_names->index_shm - old_names->index_shm_file);
-	new_names->pages_shm = new_names->pages_shm_file + (old_names->pages_shm - old_names->pages_shm_file);
+	new_names->index_shm = new_names->index_shm_file + sizeof(SYSTEM_SHM_PATH) - 1;
+	new_names->pages_shm = new_names->pages_shm_file + sizeof(SYSTEM_SHM_PATH) - 1;
 	if (!old_names->index_file)
 		return new_names->index_file = new_names->pages_file = NULL,0;
 	new_names->index_file = new_names->pages_shm_file + sbaselen + nsuflen + 1;
@@ -373,7 +373,7 @@ static int _file_relink(FSingSet *kvset)
 	if (kvset->old_data)
 		{
 		char *tofree = kvset->old_data->filenames.index_shm_file;
-		memcpy(&kvset->old_data->filenames.index_shm_file,&bk_names,sizeof(FFileNames));
+		memcpy(&kvset->old_data->filenames,&bk_names,sizeof(FFileNames));
 		free(tofree);
 		}
 	for (i = 0; i <  4; i++)
