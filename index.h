@@ -128,12 +128,17 @@ typedef struct FProtectLockTg
 
 
 typedef struct FFileNamesTg {
-	char *index_shm_file;
-	char *pages_shm_file;
-	char *index_shm;
-	char *pages_shm;
-	char *index_file;
-	char *pages_file;
+	char *index_shm; // Name of shared memory index object
+	char *pages_shm; // Name of shared pages index object
+	union {
+		char *names[4];
+		struct {
+			char *index_shm_file; // Name of shared memory index file on filesystem 
+			char *pages_shm_file; // Name of shared memory pages file on filesystem 
+			char *index_file; // Name of index disk file
+			char *pages_file; // Name of pages disk file
+			};
+		};
 	} FFileNames;
 
 typedef struct FSingSetTg
@@ -147,12 +152,13 @@ typedef struct FSingSetTg
 
 	FFileNames filenames;
 
-	char last_error[512];
+	char last_error[CF_ERROR_MSG_LEN];
 
 	unsigned hashtable_size; 
 	unsigned conn_flags;
 	unsigned read_only; // Connection is read only
-	unsigned is_private; // Set is in process memory
+	unsigned short is_private; // Set is in process memory
+	unsigned short is_persistent; // Set is in process memory
 
 	struct FSingSetTg *old_data; // Old set data, we should keep during recreation
 
@@ -176,9 +182,8 @@ int idx_creation_done(FSingSet *index,unsigned lock_mode);
 int idx_relink_set(FSingSet *index);
 
 FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config);
-void sing_unlink_set(FSingSet *index);
-void sing_unload_set(FSingSet *index);
-void sing_delete_set(FSingSet *index);
+void idx_unlink_set(FSingSet *index);
+int idx_unload_set(FSingSet *kvset,int del_from_disk);
 
 typedef struct FReaderLockTg FReaderLock;
 	
@@ -218,6 +223,7 @@ void idx_print_chain_distrib(FSingSet *index);
 #define RESULT_SMALL_BUFFER 0x0C00
 #define RESULT_VALUE_DIFFER 0x0D00
 #define RESULT_KEY_PRESENT 0x0E00
+#define RESULT_LOCKED 0x0F00
 
 int idx_key_try_lookup(FSingSet *index,FTransformData *tdata);
 int idx_key_lookup(FSingSet *index,FTransformData *tdata);

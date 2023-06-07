@@ -11,17 +11,25 @@
 
 #include "defines.h"
 
+#define VALUE_SIZE_WIDTH (LOG_BIN_MACRO(MAX_VALUE_SIZE))
+// Value size should be power of 2 for omitting value size check in reads
+#if (1 << VALUE_SIZE_WIDTH) != MAX_VALUE_SIZE
+	#error Bad value size
+#endif
+
+#define EXTRA_BYTES_COUNT (MAX_VALUE_SIZE / 2 * ELEMENT_SIZE)
+
 typedef struct FValueHeadTg
 	{
-	element_type size_e: VALUE_SIZE_WIDTH; // Размер в элементах
-	element_type padding: (ELEMENT_SIZE * 8 - VALUE_SIZE_WIDTH - 3);
-	element_type extra_bytes:3; 				// Число добавленных байт. (0-4)
+	element_type extra_bytes: LOG_BIN_MACRO(EXTRA_BYTES_COUNT);	// Added bytes (phantom value and padding) (up to 64K)
+	element_type size_e: VALUE_SIZE_WIDTH; // Size in elements (15), header excluded
+	element_type phantom: 1; // Setted both in normal and deleted values if deleted present. Since phantom value can be null, last bit is non-empty anyway
 	} FValueHead;
 	
 typedef union FValueHeadGeneralTg
 	{
-	FValueHead fields;   // Поделенные на поля
 	element_type whole;
+	FValueHead fields;   // Поделенные на поля
 	} FValueHeadGeneral;
 	
 #define VALUE_HEAD_SIZE (sizeof(FValueHead) / ELEMENT_SIZE + (sizeof(FValueHead) % ELEMENT_SIZE) ? 1 : 0)
@@ -31,10 +39,12 @@ typedef union FValueHeadGeneralTg
 
 #define CACHE_ALIGNED_MAX_KEY_SIZE (CACHE_LINE_SIZE * (MAX_KEY_SIZE * ELEMENT_SIZE / CACHE_LINE_SIZE + (((MAX_KEY_SIZE * ELEMENT_SIZE) % CACHE_LINE_SIZE)?1:0)))
 
-#define MAX_VALUE_SOURCE ((MAX_VALUE_SIZE - VALUE_HEAD_SIZE - 1) * ELEMENT_SIZE)
+#define MAX_VALUE_SOURCE ((MAX_VALUE_SIZE - VALUE_HEAD_SIZE - 2) * ELEMENT_SIZE)
 
-// Реальный размер value в байтах
+// Value size in bytes
 #define VALUE_SIZE_BYTES(A) ((A)->size_e * ELEMENT_SIZE - (A)->extra_bytes)
+// Phantom value
+#define VALUE_PHANTOM_HEAD(A) (&((element_type *)(A))[VALUE_HEAD_SIZE + (A)->size_e - (A)->extra_bytes / ELEMENT_SIZE])
 
 typedef struct
 	{

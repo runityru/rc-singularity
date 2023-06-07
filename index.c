@@ -17,6 +17,7 @@
 #include <signal.h>
 #include <stdarg.h>
 #include <sched.h>
+#include <errno.h>
 
 #include "config.h"
 #include "index.h"
@@ -32,26 +33,17 @@
 
 const char *FILE_SIGNATURE __attribute__ ((aligned (4))) = "TC01"; // Codec name and major version
 
-#define HS_COUNT 25
-
-const unsigned HASH_TABLE_SIZES[HS_COUNT] = {547,1117,2221,4447,8269,16651,33391,65713,131071,524287,1336337,2014997,2494993,4477457,6328548,8503057,29986577,40960001,
-				65610001,126247697,193877777,303595777,384160001,406586897,562448657};
-
 // Выделяет и инициализирует структуру
 
-FSingSet *_alloc_index(void)
+void _init_index(FSingSet *rv,int keep_filenames)
 	{
 	int i;
-	FSingSet *rv = NULL;
-
-	if (posix_memalign((void **)&rv,CACHE_LINE_SIZE,sizeof(FSingSet)))
-		return NULL;
-
 	rv->head = MAP_FAILED;
 	rv->index_fd = rv->pages_fd = -1;
 	rv->disk_index_fd = rv->disk_pages_fd = -1;
 	rv->used_cpages = rv->real_cpages = NULL;
-	memset(&rv->filenames,0,sizeof(FFileNames));
+	if (!keep_filenames)
+		memset(&rv->filenames,0,sizeof(FFileNames));
 	rv->protect_lock.whole = 0LL;
 	rv->last_error[0] = 0;
 
@@ -59,87 +51,79 @@ FSingSet *_alloc_index(void)
 		{ rv->pages[i] = MAP_FAILED; }
 
 	rv->old_data = NULL;
-	
+	}
+
+FSingSet *_alloc_index(void)
+	{
+	FSingSet *rv = NULL;
+	if (posix_memalign((void **)&rv,CACHE_LINE_SIZE,sizeof(FSingSet)))
+		return NULL;
 	return rv;
 	}
 
-static int _create_names(FFileNames *filenames,FSingConfig *config,const char *setname,const char *suffix,unsigned flags)
+static int _create_names(FFileNames *filenames,FSingConfig *config,const char *setname,const char *suffix)
 	{
 	if (!suffix) suffix = "";
-	int fsize = strlen(setname) + strlen(suffix) + 4 + 1;
-	int size = (fsize + strlen(SYSTEM_SHM_PATH)) * 2;
-	char *bl;
-	if (!(flags & UF_NOT_PERSISTENT))
-		{
-		bl = config->base_location ? config->base_location : "./";
-		size += (fsize + strlen(bl)) * 2;
-		}
+	int fsize = strlen(setname) + strlen(suffix) + sizeof(".idx"); // ".idx" and terminating 0
+	int size = (sizeof(SYSTEM_SHM_PATH) + fsize);
+	char *bl = config->base_location ? config->base_location : "./";
+	size += (strlen(bl) + fsize);
 	
-	if (!(filenames->index_shm_file = (char *)malloc(size)))
+	if (!(filenames->index_shm_file = (char *)malloc(size * 2)))
 		return 1;
 	filenames->pages_shm_file = filenames->index_shm_file + sprintf(filenames->index_shm_file,"%s%s.idx%s",SYSTEM_SHM_PATH,setname,suffix) + 1;
 	int psf_size = sprintf(filenames->pages_shm_file,"%s%s.dat%s",SYSTEM_SHM_PATH,setname,suffix) + 1;
 
-	filenames->index_shm = filenames->index_shm_file + strlen(SYSTEM_SHM_PATH);
-	filenames->pages_shm = filenames->pages_shm_file + strlen(SYSTEM_SHM_PATH);
+	filenames->index_shm = filenames->index_shm_file + sizeof(SYSTEM_SHM_PATH) - 1;
+	filenames->pages_shm = filenames->pages_shm_file + sizeof(SYSTEM_SHM_PATH) - 1;
 
-	if (!(flags & UF_NOT_PERSISTENT))
-		{
-		filenames->index_file = filenames->pages_shm_file + psf_size;
-		filenames->pages_file = filenames->index_file + sprintf(filenames->index_file,"%s%s.idx%s",bl,setname,suffix) + 1;
-		sprintf(filenames->pages_file,"%s%s.dat%s",bl,setname,suffix);
-		}
+	filenames->index_file = filenames->pages_shm_file + psf_size;
+	filenames->pages_file = filenames->index_file + sprintf(filenames->index_file,"%s%s.idx%s",bl,setname,suffix) + 1;
+	sprintf(filenames->pages_file,"%s%s.dat%s",bl,setname,suffix);
 	return 0;
+	}
+
+static inline void _strcpycat(char *dest,const char *src1,unsigned src1len,const char *src2)
+	{
+	memcpy(dest,src1,src1len);
+	strcpy(dest + src1len,src2);
 	}
 
 static int _copy_names(FFileNames *old_names,FFileNames *new_names,const char *old_suffix,const char *new_suffix)
 	{
 	if (!old_suffix) old_suffix = "";
 	if (!new_suffix) new_suffix = "";
-	int osuflen = strlen(old_suffix), nsuflen = strlen(new_suffix);
+	int osuflen = strlen(old_suffix), nsuflen = strlen(new_suffix) + 1;
 	int sbaselen = strlen(old_names->index_shm_file) - osuflen;
-	int fbaselen = 0;
+	int fbaselen = strlen(old_names->index_file) - osuflen;
+	int size = sbaselen + fbaselen + nsuflen * 2;
 
-	int size = sbaselen + nsuflen + 1;
-	if (old_names->index_file)
-		{
-		fbaselen = strlen(old_names->index_file) - osuflen;
-		size += fbaselen + nsuflen + 1;
-		}
-	size *= 2;
-	if (!(new_names->index_shm_file = (char *)malloc(size)))
+	if (!(new_names->index_shm_file = (char *)malloc(size * 2)))
 		return 1;
-	memcpy(new_names->index_shm_file,old_names->index_shm_file,sbaselen);
-	strcpy(new_names->index_shm_file + sbaselen,new_suffix);
-	new_names->pages_shm_file = new_names->index_shm_file + sbaselen + nsuflen + 1;
-	memcpy(new_names->pages_shm_file,old_names->pages_shm_file,sbaselen);
-	strcpy(new_names->pages_shm_file + sbaselen,new_suffix);
-	new_names->index_shm = new_names->index_shm_file + (old_names->index_shm - old_names->index_shm_file);
-	new_names->pages_shm = new_names->pages_shm_file + (old_names->pages_shm - old_names->pages_shm_file);
-	if (old_names->index_file)
-		{
-		new_names->index_file = new_names->pages_shm_file + sbaselen + nsuflen + 1;
-		memcpy(new_names->index_file,old_names->index_file,fbaselen);
-		strcpy(new_names->index_file + fbaselen,new_suffix);
-		new_names->pages_file = new_names->index_file + fbaselen + nsuflen + 1;
-		memcpy(new_names->pages_file,old_names->pages_file,fbaselen);
-		strcpy(new_names->pages_file + fbaselen,new_suffix);
-		}
-	else
-		new_names->index_file = new_names->pages_file = NULL;
+	_strcpycat(new_names->index_shm_file,old_names->index_shm_file,sbaselen,new_suffix);
+	new_names->pages_shm_file = new_names->index_shm_file + sbaselen + nsuflen;
+	_strcpycat(new_names->pages_shm_file,old_names->pages_shm_file,sbaselen,new_suffix);
+
+	new_names->index_shm = new_names->index_shm_file + sizeof(SYSTEM_SHM_PATH) - 1;
+	new_names->pages_shm = new_names->pages_shm_file + sizeof(SYSTEM_SHM_PATH) - 1;
+
+	new_names->index_file = new_names->pages_shm_file + sbaselen + nsuflen;
+	_strcpycat(new_names->index_file,old_names->index_file,fbaselen,new_suffix);
+	new_names->pages_file = new_names->index_file + fbaselen + nsuflen;
+	_strcpycat(new_names->pages_file,old_names->pages_file,fbaselen,new_suffix);
 	return 0;
 	}
 
 void idx_set_error(FSingSet *index,const char *message)
 	{
-	strncpy(index->last_error,message,511);
+	strncpy(index->last_error,message,CF_ERROR_MSG_LEN - 1);
 	}
 
 void idx_set_formatted_error(FSingSet *index,const char *format,...)
 	{
 	va_list args;
 	va_start(args, format);
-	vsnprintf(index->last_error,511,format, args);
+	vsnprintf(index->last_error,CF_ERROR_MSG_LEN - 1,format, args);
 	va_end(args);
 	}
 
@@ -156,8 +140,12 @@ FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,
 	int ifd = -1,pfd = -1;
 	int map_flags = MAP_ANONYMOUS | MAP_PRIVATE;
 
+	if ((flags & CF_READER) && (flags & (CF_UNLOAD_ON_CLOSE | CF_KEEP_LOCK)))
+		return cnf_set_error(config,"incompatible flags"), NULL;
+
 	if (!(rv = _alloc_index()))
 		{ cnf_set_error(config,"not enougth memory for set initialization"); return NULL; }
+	_init_index(rv,0);
 
 	if (!setname)
 		{
@@ -167,7 +155,7 @@ FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,
 	else 
 		{
 		rv->is_private = 0;
-		if (_create_names(&rv->filenames,config,setname,".tmp",flags))
+		if (_create_names(&rv->filenames,config,setname,".tmp"))
 			{ cnf_set_error(config,"not enougth memory for set initialization"); goto idx_empty_index_fail; }
 		// Try to link existing share
 		FSingConfig old_config;
@@ -175,6 +163,7 @@ FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,
 		old_config.connect_flags = 0; // Remove all flags, we need initial connection with delete possibility
 		rv->old_data = idx_link_set(setname,0,config);
 		}
+	rv->is_persistent = (flags & UF_NOT_PERSISTENT) ? 0 : 1;
 	
 	if (flags & CF_READER)
 		flags |= CF_FULL_LOAD;
@@ -217,7 +206,7 @@ FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,
 			{ cnf_set_error(config,"can not truncate collision table"); goto idx_empty_index_fail; }
 		map_flags = MAP_SHARED;
 
-		if (!(flags & UF_NOT_PERSISTENT))
+		if (rv->is_persistent)
 			{
 			if ((rv->disk_index_fd = open(rv->filenames.index_file,O_NEWFILE, FILE_PERMISSIONS)) == -1)
 				{ cnf_set_formatted_error(config,"can not create file %s",rv->filenames.index_file); goto idx_empty_index_fail; }
@@ -265,9 +254,8 @@ FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,
 	// Инитим ссылки в локальной структуре на разные структуры в шаре
 	rv->lock_set = (FLockSet *)index_share;
 	index_share += locks_size;
-	rv->used_cpages = NULL;
 
-	if (!(flags & UF_NOT_PERSISTENT))
+	if (rv->is_persistent)
 		{
 		rv->real_cpages = (FChangedPages *)index_share;
 		rv->real_cpages->pt_offset = base_head_size / ELEMENT_SIZE;
@@ -276,11 +264,8 @@ FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,
 		cp_mark_hashtable_loaded(rv);
 		cp_mark_page_loaded(rv->real_cpages,0);
 		}
-	else
-		rv->real_cpages = NULL;
 
-	head->first_pf_spec_page = NO_PAGE;
-	head->first_empty_page = NO_PAGE;
+	head->first_pf_spec_page = head->first_empty_page = NO_PAGE;
 
 	if ((rv->pages[0] = (unsigned *)mmap(NULL,PAGE_SIZE_BYTES,PROT_WRITE | PROT_READ, map_flags, pfd, 0)) == MAP_FAILED)
 		{ cnf_set_error(config,"can not map collision table"); goto idx_empty_index_fail; }
@@ -296,64 +281,77 @@ FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,
 	
 idx_empty_index_fail:
 	if (rv) 
-		sing_delete_set(rv);
-
+		{
+		if (rv->is_persistent)
+			unlink(rv->filenames.index_file), unlink(rv->filenames.pages_file);
+		if (rv->filenames.index_shm)
+			shm_unlink(rv->filenames.index_shm), shm_unlink(rv->filenames.pages_shm);
+		idx_unlink_set(rv);
+		free(rv);
+		}
 	return NULL;
 	}
+
+#define BACKUP_FILE_LINKED 1
+#define BACKUP_FILE_MOVED 2
 
 static int _file_relink(FSingSet *kvset)
 	{
 	unsigned bkstate[4] = {0,0,0,0};
-	FFileNames bk_names = {NULL},nnames;
+	FFileNames bk_names = {NULL}; // Names of backup files
+	FFileNames nnames; // Names of target files
+	int i;
 
 	if (_copy_names(&kvset->filenames,&nnames,".tmp",NULL))
-		return 1;
+		goto _file_relink_fail;
 	if (kvset->old_data)
 		{
-		if (_copy_names(&kvset->filenames,&bk_names,".tmp",".bk") || 
-				link(kvset->old_data->filenames.index_shm_file,bk_names.index_shm_file))
+		if (_copy_names(&kvset->filenames,&bk_names,".tmp",".bk"))
+			goto _file_relink_fail;
+		if(file_link(kvset->old_data->filenames.index_shm_file,bk_names.index_shm_file))
 			goto _file_relink_fail; 
-		bkstate[0] = 1;
-		if (link(kvset->old_data->filenames.pages_shm_file,bk_names.pages_shm_file))
+		bkstate[0] = BACKUP_FILE_LINKED;
+		if (file_link(kvset->old_data->filenames.pages_shm_file,bk_names.pages_shm_file))
 			goto _file_relink_fail; 
-		bkstate[1] = 1;
+		bkstate[1] = BACKUP_FILE_LINKED;
 
-		if (kvset->old_data->filenames.index_file)
+		if (kvset->old_data->is_persistent)
 			{
-			if (kvset->filenames.index_file)
+			if (kvset->is_persistent)
 				{
-				if (link(kvset->old_data->filenames.index_file,bk_names.index_file))
+				if (file_link(kvset->old_data->filenames.index_file,bk_names.index_file))
 					goto _file_relink_fail; 
-				bkstate[2] = 1;
-				if (link(kvset->old_data->filenames.pages_file,bk_names.pages_file))
+				bkstate[2] = BACKUP_FILE_LINKED;
+				if (file_link(kvset->old_data->filenames.pages_file,bk_names.pages_file))
 					goto _file_relink_fail;
-				bkstate[3] = 1;
+				bkstate[3] = BACKUP_FILE_LINKED;
 				}
 			else
 				{
 				if (rename(kvset->old_data->filenames.index_file,bk_names.index_file))
 					goto _file_relink_fail; 
-				bkstate[2] = 2;
+				bkstate[2] = BACKUP_FILE_MOVED;
 				if (rename(kvset->old_data->filenames.pages_file,bk_names.pages_file))
 					goto _file_relink_fail;
-				bkstate[3] = 2;
+				bkstate[3] = BACKUP_FILE_MOVED;
 				}
 			}
 		}
 
 	if (rename(kvset->filenames.index_shm_file,nnames.index_shm_file))
 		goto _file_relink_fail;
-	bkstate[0] *= 2;
+	bkstate[0] *= 2; // It can be 0 => 0 or BACKUP_FILE_LINKED => BACKUP_FILE_MOVED, not BACKUP_FILE_MOVED => 4
 	if (rename(kvset->filenames.pages_shm_file,nnames.pages_shm_file))
 		goto _file_relink_fail;
 	bkstate[1] *= 2;
-	if (kvset->filenames.index_file)
+	if (kvset->is_persistent)
 		{
 		if (rename(kvset->filenames.index_file,nnames.index_file))
 			goto _file_relink_fail;
-		bkstate[2] *= 2;
+		bkstate[2] *= 2;  
 		if (rename(kvset->filenames.pages_file,nnames.pages_file))
 			goto _file_relink_fail;
+		bkstate[3] *= 2;
 		}
 
 	char *tofree = kvset->filenames.index_shm_file;
@@ -363,33 +361,21 @@ static int _file_relink(FSingSet *kvset)
 	if (kvset->old_data)
 		{
 		char *tofree = kvset->old_data->filenames.index_shm_file;
-		memcpy(&kvset->old_data->filenames.index_shm_file,&bk_names,sizeof(FFileNames));
+		memcpy(&kvset->old_data->filenames,&bk_names,sizeof(FFileNames));
 		free(tofree);
 		}
-
+	for (i = 0; i <  4; i++)
+		if (bkstate[i]) unlink(bk_names.names[i]);
 	return 0;
 
 _file_relink_fail:
-	switch (bkstate[3])
-		{
-		case 1: unlink(bk_names.pages_file); break;
-		case 2: rename(bk_names.pages_file,nnames.pages_file);
-		}
-	switch (bkstate[2])
-		{
-		case 1: unlink(bk_names.index_file); break;
-		case 2: rename(bk_names.index_file,nnames.index_file);
-		}
-	switch (bkstate[1])
-		{
-		case 1: unlink(bk_names.pages_shm_file); break;
-		case 2: rename(bk_names.pages_shm_file,nnames.pages_shm_file);
-		}
-	switch (bkstate[0])
-		{
-		case 1: unlink(bk_names.index_shm_file); break;
-		case 2: rename(bk_names.index_shm_file,nnames.index_shm_file);
-		}
+	idx_set_error(kvset,"Failed to relink old set data");
+	for (i = 3; i >= 0; i--)
+		switch (bkstate[i])
+			{
+			case BACKUP_FILE_LINKED: unlink(bk_names.pages_file); break;
+			case BACKUP_FILE_MOVED: rename(bk_names.pages_file,nnames.pages_file);
+			}
 
 	if (nnames.index_shm_file)
 		free(nnames.index_shm_file);
@@ -397,6 +383,9 @@ _file_relink_fail:
 		free(bk_names.index_shm_file);
 	return 1;
 	}
+
+#undef BACKUP_FILE_LINKED
+#undef BACKUP_FILE_MOVED
 
 int idx_creation_done(FSingSet *kvset,unsigned lock_mode)
 	{
@@ -411,12 +400,20 @@ int idx_creation_done(FSingSet *kvset,unsigned lock_mode)
 			break;
 		}
 	lck_init_locks(kvset);
+
+	if (kvset->conn_flags & CF_KEEP_LOCK)
+		{
+		kvset->conn_flags &= ~CF_KEEP_LOCK; // lck_manualLock can call relink_set before putting the lock
+		if (lck_manualLock(kvset))
+			return 1;
+		}
+	
 	if (!kvset->is_private && _file_relink(kvset))
 		return 1;
 
 	if (kvset->old_data)
 		{
-		sing_delete_set(kvset->old_data);
+		idx_unload_set(kvset->old_data,1);
 		kvset->old_data = NULL;
 		}
 
@@ -439,89 +436,84 @@ int idx_creation_done(FSingSet *kvset,unsigned lock_mode)
 	return 0;
 	}
 	
-FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
+static int _link_set(FSingSet *rv,FSingConfig *config)
 	{
-	FSingSet *rv = NULL;
 	FSetHead *head;
 	FHeadSizes head_sizes;
-	element_type base_head_size,counters_size,page_types_size,locks_size;
+	element_type base_head_size = INDEX_HEAD_DISK_PAGES * DISK_PAGE_BYTES;
+	element_type counters_size,page_types_size,locks_size;
 	char *index_share,*extra_struct;
 	unsigned i;
 	int share_mode = O_RDWR;
 	int file_locked = 0;
 	int ifd = -1;
-	base_head_size = INDEX_HEAD_DISK_PAGES * DISK_PAGE_BYTES;
-	
-	if (!setname)
-		return cnf_set_error(config,"can not link to unnamed set"), NULL;
 
-	if (!(rv = _alloc_index()))
-		return cnf_set_error(config,"not enougth memory for index struct"), NULL;
-
-	if (_create_names(&rv->filenames,config,setname,NULL,0))
-		{ cnf_set_error(config,"not enougth memory for set initialization"); goto sing_link_set_fail; } 
-
-	if (flags & CF_READER)
-		flags |= CF_FULL_LOAD;
-	rv->conn_flags = (config->connect_flags | flags) & CF_MASK;
 	rv->is_private = 0;
-
+	rv->is_persistent = 0;
 	if ((ifd = shm_open(rv->filenames.index_shm,O_RDWR | O_CREAT, FILE_PERMISSIONS)) == -1)
-		{ cnf_set_formatted_error(config,"can not open set %s",rv->filenames.index_shm); goto sing_link_set_fail; }
+		{ cnf_set_formatted_error(config,"can not open set %s",rv->filenames.index_shm); goto _link_set_fail; }
 	
 	// Блочим шару (возможно мы ее только что создали, надо проверить)
 	if (file_lock(ifd,LOCK_EX))
-		{ cnf_set_error(config,"flock failed"); goto sing_link_set_fail; }
+		{ cnf_set_error(config,"flock failed"); goto _link_set_fail; }
 	
 	if (file_read(ifd,&head_sizes,sizeof(FHeadSizes)) != sizeof(FHeadSizes))
 		{ // Шары не было, пересоздадим из дисковой версии, если такая есть
-		size_t to_read;
+		if ((rv->disk_index_fd = open(rv->filenames.index_file,O_RDWR)) == -1)
+			{ cnf_set_formatted_error(config,"persistent index file %s not found",rv->filenames.index_file); goto _link_set_fail; }
+
+		if (file_read(rv->disk_index_fd,&head_sizes,sizeof(FHeadSizes)) != sizeof(FHeadSizes)) // Читаем полный размер из дискового файла
+			{ cnf_set_error(config,"can not read full head set size"); goto _link_set_fail; }
+
+		if (ftruncate(ifd,head_sizes.mem_file_size)) // Расширяем в памяти
+			{ cnf_set_error(config,"can not truncate hash table"); goto _link_set_fail; }
+
+		if ((index_share = (char *)mmap(NULL,head_sizes.mem_file_size,PROT_WRITE | PROT_READ, MAP_SHARED, ifd, 0)) == MAP_FAILED)
+			{ cnf_set_error(config,"can not map hash table"); goto _link_set_fail; }
+
 		share_mode = O_NEWFILE;
 		file_locked = 1;
 		
-		if ((rv->disk_index_fd = open(rv->filenames.index_file,O_RDWR)) == -1)
-			{ cnf_set_formatted_error(config,"can not open file %s",rv->filenames.index_file); goto sing_link_set_fail; }
-
-		if (file_read(rv->disk_index_fd,&head_sizes,sizeof(FHeadSizes)) != sizeof(FHeadSizes)) // Читаем полный размер из дискового файла
-			{ cnf_set_error(config,"can not read full head set size"); goto sing_link_set_fail; }
-
-		if (ftruncate(ifd,head_sizes.mem_file_size)) // Расширяем в памяти
-			{ cnf_set_error(config,"can not truncate hash table"); goto sing_link_set_fail; }
-
-		if ((index_share = (char *)mmap(NULL,head_sizes.mem_file_size,PROT_WRITE | PROT_READ, MAP_SHARED, ifd, 0)) == MAP_FAILED)
-			{ cnf_set_error(config,"can not map hash table"); goto sing_link_set_fail; }
-
 		rv->head = head = (FSetHead *)index_share;
 		head->sizes = head_sizes;
-		to_read = base_head_size - sizeof(FHeadSizes);
+		size_t to_read = base_head_size - sizeof(FHeadSizes);
 		// Дочитываем заголовок
 		if (file_read(rv->disk_index_fd,&index_share[sizeof(FHeadSizes)],to_read) != to_read)
-			{ cnf_set_error(config,"can not read set head from disk"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"can not read set head from disk"); goto _link_set_fail; }
 		if (head->signature != *((unsigned *)FILE_SIGNATURE))
-			{ cnf_set_error(config,"incompatible set format"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"incompatible set format"); goto _link_set_fail; }
 		if (head->use_flags & UF_NOT_PERSISTENT)
-			{ cnf_set_error(config,"set with disk copy has NOT_PERSISTENT flag"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"set with disk copy has NOT_PERSISTENT flag"); goto _link_set_fail; }
 		if (head->wip)
-			{ cnf_set_error(config,"disk copy of set is broken"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"disk copy of set is broken"); goto _link_set_fail; }
+		rv->is_persistent = 1;
 		}
 	else
 		{
 		file_lock(ifd,LOCK_UN);
 
 		if ((index_share = (char *)mmap(NULL,head_sizes.mem_file_size,PROT_WRITE | PROT_READ, MAP_SHARED, ifd, 0)) == MAP_FAILED)
-			{ cnf_set_error(config,"can not map hash table"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"can not map hash table"); goto _link_set_fail; }
 		rv->head = head = (FSetHead *)index_share;
 		if (head->signature != *((unsigned *)FILE_SIGNATURE))
-			{ cnf_set_error(config,"incompatible share format"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"incompatible share format"); goto _link_set_fail; }
 		if (!(head->use_flags & UF_NOT_PERSISTENT))
 			{
 			if ((rv->disk_index_fd = open(rv->filenames.index_file,O_RDWR)) == -1)
-				{ cnf_set_formatted_error(config,"can not open file %s",rv->filenames.index_file); goto sing_link_set_fail; }
+				{ cnf_set_formatted_error(config,"can not open file %s",rv->filenames.index_file); goto _link_set_fail; }
+			rv->is_persistent = 1;
 			}
-		else
-			rv->filenames.index_file = rv->filenames.pages_file = NULL;
 		}
 	rv->read_only = (head->lock_mode == LM_READ_ONLY) ? 1 : 0;
+	switch(head->lock_mode)
+		{
+		case LM_READ_ONLY:
+		case LM_NONE:
+			if (rv->conn_flags & CF_KEEP_LOCK)
+				{ cnf_set_error(config,"incompatible flags and lock mode"); goto _link_set_fail; }
+			break;
+		}
+
 	rv->hashtable_size = head->hashtable_size;
 	extra_struct = index_share + head_sizes.disk_file_size;
 	locks_size = sizeof(FLockSet) + sizeof(uint64_t) * (rv->hashtable_size / 128 + ((rv->hashtable_size % 128) ? 1 : 0));
@@ -532,7 +524,7 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 		page_types_size = PAGE_TYPES_DISK_PAGES * DISK_PAGE_BYTES;
 		rv->page_types = (unsigned char *)index_share;
 		if (file_locked && file_read(rv->disk_index_fd,index_share,page_types_size) != page_types_size)
-			{ cnf_set_error(config,"can not read page types from disk"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"can not read page types from disk"); goto _link_set_fail; }
 		index_share += page_types_size;
 		}
 	else
@@ -543,7 +535,7 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 		counters_size = align_up(COUNTERS_SIZE(head->hashtable_size) * sizeof(unsigned),DISK_PAGE_BYTES);
 		rv->counters = (unsigned *)index_share;
 		if (file_locked && file_read(rv->disk_index_fd,index_share,counters_size) != counters_size)
-			{ cnf_set_error(config,"can not read counters from disk"); goto sing_link_set_fail; }
+			{ cnf_set_error(config,"can not read counters from disk"); goto _link_set_fail; }
 		index_share += counters_size;
 		}
 	else
@@ -556,37 +548,50 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 
 	// Открывем шару и файл страниц
 	if ((rv->pages_fd = shm_open(rv->filenames.pages_shm,share_mode, FILE_PERMISSIONS)) == -1)
-		{ cnf_set_formatted_error(config,"can not open share %s",rv->filenames.pages_shm); goto sing_link_set_fail; }
+		{ cnf_set_formatted_error(config,"can not open share %s",rv->filenames.pages_shm); goto _link_set_fail; }
 
-	if (!(head->use_flags & UF_NOT_PERSISTENT))
+	if (rv->is_persistent)
 		{
 		rv->real_cpages = rv->used_cpages = (FChangedPages *)extra_struct;
 		if ((rv->disk_pages_fd = open(rv->filenames.pages_file,O_RDWR, FILE_PERMISSIONS)) == -1)
-			{ cnf_set_formatted_error(config,"can not open file %s",rv->filenames.pages_file); goto sing_link_set_fail; }
+			{ cnf_set_formatted_error(config,"can not open file %s",rv->filenames.pages_file); goto _link_set_fail; }
 		}
 	
 	if (file_locked)
 		{
-		if (ftruncate(rv->pages_fd,head->pcnt * PAGE_SIZE_BYTES)) 
-			{ cnf_set_error(config,"can not truncate collision table"); goto sing_link_set_fail; }
+		size_t full_data_size = head->pcnt * PAGE_SIZE_BYTES;
+		if (ftruncate(rv->pages_fd,full_data_size)) 
+			{ cnf_set_error(config,"can not truncate collision table"); goto _link_set_fail; }
 
 		cp_init(rv->used_cpages,page_types_size,counters_size);
 		if (rv->conn_flags & CF_FULL_LOAD)
 			{
 			element_type hash_table_size = align_up((head->hashtable_size + 1) / 2 * sizeof(FKeyHeadGeneral) * KEYHEADS_IN_BLOCK,DISK_PAGE_BYTES);
 			if (file_read(rv->disk_index_fd,index_share,hash_table_size) != hash_table_size)
-				{ cnf_set_error(config,"can not read hash table from disk"); goto sing_link_set_fail; }
+				{ cnf_set_error(config,"can not read hash table from disk"); goto _link_set_fail; }
 			cp_mark_hashtable_loaded(rv);
 
-			if ((rv->pages[0] = (element_type *)mmap(NULL,head_sizes.mem_file_size,PROT_WRITE | PROT_READ, MAP_SHARED, rv->pages_fd, 0)) == MAP_FAILED)
-				{ cnf_set_error(config,"can not map collision table"); goto sing_link_set_fail; }
+			if ((rv->pages[0] = (element_type *)mmap(NULL,full_data_size,PROT_WRITE | PROT_READ, MAP_SHARED, rv->pages_fd, 0)) == MAP_FAILED)
+				{ cnf_set_error(config,"can not map collision table"); goto _link_set_fail; }
+			if (file_read(rv->disk_pages_fd,rv->pages[0],full_data_size) != full_data_size)
+				{ cnf_set_error(config,"can not read pages from disk"); goto _link_set_fail; }			
 			for (i = 1; i < head->pcnt; i++)
 				rv->pages[i] = rv->pages[0] + i * PAGE_SIZE;
 			cp_mark_pages_loaded(rv);
 			}
-		file_lock(ifd,LOCK_UN);
-		file_locked = 0;
+		lck_init_locks(rv);
 		}
+
+	if (rv->conn_flags & CF_KEEP_LOCK)
+		{
+		int code;
+		rv->conn_flags &= ~CF_KEEP_LOCK; // After relink set must be unlocked
+		if ((code = lck_manualLock(rv)))
+			{ cnf_set_formatted_error(config,"can not set manual lock, code %d",code); goto _link_set_fail; }
+		}
+
+	if (file_locked)
+		file_lock(ifd,LOCK_UN), file_locked = 0;
 
 	close(ifd);
 	if (rv->conn_flags & CF_READER)
@@ -597,27 +602,66 @@ FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
 			close(rv->disk_pages_fd), rv->disk_pages_fd = -1;
 		rv->read_only = 1;
 		}
-	return rv;
+	return 0;
 	
-sing_link_set_fail:
+_link_set_fail:
 	if (file_locked && ifd != -1)
 		{
 		shm_unlink(rv->filenames.index_shm); // Что-то пошло не так, удалим основную шару, т.к. в других файлах может быть мусор
 		file_lock(ifd,LOCK_UN);
 		}
 	if (ifd != -1) close(ifd);
-	if (rv) 
-		sing_unlink_set(rv);
+	idx_unlink_set(rv);
+	return 1;
+	}
 
-	return NULL;
+FSingSet *idx_link_set(const char *setname,unsigned flags,FSingConfig *config)
+	{
+	FSingSet *rv = NULL;
+
+	if (!setname)
+		return cnf_set_error(config,"can not link to unnamed set"), NULL;
+
+	if ((flags & CF_READER) && (flags & (CF_UNLOAD_ON_CLOSE | CF_KEEP_LOCK)))
+		return cnf_set_error(config,"incompatible flags"), NULL;
+
+	if (!(rv = _alloc_index()))
+		return cnf_set_error(config,"not enougth memory for index struct"), NULL;
+	_init_index(rv,0);
+
+	if (_create_names(&rv->filenames,config,setname,NULL))
+		{ 
+		cnf_set_error(config,"not enougth memory for set initialization"); 
+		free(rv);
+		return NULL;
+		} 
+
+	if (flags & CF_READER)
+		flags |= CF_FULL_LOAD;
+	rv->conn_flags = (config->connect_flags | flags) & CF_MASK;
+	if (_link_set(rv,config))
+		return free(rv),NULL;
+	return rv;
 	}
 
 int idx_relink_set(FSingSet *index)
 	{
+	FSingSet bk_index __attribute__((aligned(CACHE_LINE_SIZE)));
+	memcpy(&bk_index,index,sizeof(FSingSet));
+	_copy_names(&index->filenames,&bk_index.filenames,NULL,NULL);
+	_init_index(index,1);
+   FSingConfig config = {0};
+
+	if (!_link_set(index,&config))
+		{
+		idx_unlink_set(&bk_index);
+		return 0;
+		}
+	memcpy(index,&bk_index,sizeof(FSingSet));
 	return 1;
 	}
 	
-void sing_unlink_set(FSingSet *index)
+void idx_unlink_set(FSingSet *index)
 	{
 	unsigned i,pcnt;
 	
@@ -642,29 +686,46 @@ void sing_unlink_set(FSingSet *index)
 	if (index->disk_index_fd != -1) close(index->disk_index_fd); 	// Файл индекса на диске
 	if (index->disk_pages_fd != -1) close(index->disk_pages_fd); 	// Файл страниц на диске
 	if (index->filenames.index_shm_file) free(index->filenames.index_shm_file);
-	free(index);
 	}
-	
-void sing_unload_set(FSingSet *index)
+
+int idx_unload_set(FSingSet *kvset,int del_from_disk)
 	{
-	if (index->filenames.index_shm)
-		{
-		shm_unlink(index->filenames.index_shm);
-		shm_unlink(index->filenames.pages_shm);
+	int res = 0;
+	if (!kvset->is_persistent)
+		del_from_disk = 0;
+	if (lck_manualPresent(kvset))
+		{ // if we have manual lock - revert to disk copy if present and keep the lock
+		if (kvset->head->lock_mode == LM_PROTECTED)
+			lck_protectWait(kvset);
+		if (!(kvset->head->use_flags & UF_NOT_PERSISTENT))
+			res = idx_revert(kvset);
 		}
-	if (index->head != MAP_FAILED)
-		lck_deinit_locks(index);
-	sing_unlink_set(index);
-	}
-	
-void sing_delete_set(FSingSet *index)
-	{
-	if (index->filenames.index_file)
-		{
-		unlink(index->filenames.index_file);
-		unlink(index->filenames.pages_file);
+	else if (!del_from_disk && __atomic_load_n(&kvset->head->bad_states.states.deleted,__ATOMIC_RELAXED))
+		{ // Set is already deleted by somebody so we have only to unmap our shares
+		idx_unlink_set(kvset);
+		free(kvset);
+		return 0;
 		}
-	sing_unload_set(index);
+	else if (kvset->head->lock_mode != LM_NONE && kvset->head->lock_mode != LM_READ_ONLY)
+		res = lck_manualLock(kvset); // Otherwise set manual lock
+
+	if (res)
+		return res;
+
+	if (del_from_disk)
+		{
+		unlink(kvset->filenames.index_file);
+		unlink(kvset->filenames.pages_file);
+		}
+	if (kvset->filenames.index_shm)
+		{
+		shm_unlink(kvset->filenames.index_shm);
+		shm_unlink(kvset->filenames.pages_shm);
+		}
+	lck_deinit_locks(kvset); // Deleting mutex and removing all locks
+	idx_unlink_set(kvset);
+	free(kvset);
+	return 0;
 	}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -675,21 +736,23 @@ static const FHashTableChain HT_CHAINS[2] = {{1,0,KH_BLOCK_LAST,0},{-1,KH_BLOCK_
 
 static FKeyHeadGeneral *_load_hashtable_entry(FSingSet *index,FKeyHeadGeneral *rv,unsigned hash)
 	{
-	int disk_index_fd;
-	if ((disk_index_fd = index->disk_index_fd) == -1) 
+	int disk_index_fd = index->disk_index_fd;
+	if (disk_index_fd == -1 && (disk_index_fd = open(index->filenames.index_file,O_RDONLY)) == -1)
 		return NULL;
 
-	file_lock(disk_index_fd,LOCK_EX);
-	if (cp_is_hash_entry_loaded(index->real_cpages,hash))
-		{ file_lock(disk_index_fd,LOCK_UN); return rv; }
+	file_lock(disk_index_fd,LOCK_EX); // Preventing concurent reading
+	if (!cp_is_hash_entry_loaded(index->real_cpages,hash))
+		{
+		off_t h_off = (off_t)((index->real_cpages->hashtable_offset + hash * KH_BLOCK_SIZE / 2) / DISK_PAGE_SIZE) * DISK_PAGE_BYTES;
+		lseek(disk_index_fd, h_off, SEEK_SET);
 
-	off_t h_off = (off_t)((index->real_cpages->hashtable_offset + hash * KH_BLOCK_SIZE / 2) / DISK_PAGE_SIZE) * DISK_PAGE_BYTES;
-	lseek(disk_index_fd, h_off, SEEK_SET);
-
-	if (file_read(disk_index_fd,((char *)index->head) + h_off,DISK_PAGE_BYTES) != DISK_PAGE_BYTES)
-		rv = NULL;
-	cp_mark_hash_entry_loaded(index->real_cpages,hash);
+		if (file_read(disk_index_fd,((char *)index->head) + h_off,DISK_PAGE_BYTES) != DISK_PAGE_BYTES)
+			rv = NULL;
+		cp_mark_hash_entry_loaded(index->real_cpages,hash);
+		}
 	file_lock(disk_index_fd,LOCK_UN);
+	if (index->disk_index_fd == 1)
+		close(disk_index_fd);
 	return rv;
 	}
 
@@ -700,10 +763,13 @@ static inline FKeyHeadGeneral *get_hashtable_entry(FSingSet *index,unsigned hash
 	}
 
 // return 1 if keys are equal, 0 otherwise or if we have left allocated memory. 
+// return phantom (deleted) keys only if tdata->use_phantom is setted
 static inline int _compare_keys_R(FSingSet *index,FKeyHeadGeneral old_key,FTransformData *tdata)
 	{
 	if ((old_key.links.next ^ tdata->head.links.next) & 0xFFFFFC7E) // (key1->size != key2->size || key1->data0 != key2->data0)
 		return 0; 
+	if ((index->head->use_flags & UF_PHANTOM_KEYS) && old_key.fields.diff_or_phantom_mark && !tdata->use_phantom)
+		return 0;
 	element_type *old_data;
 	unsigned size = old_key.fields.size;
 	if (!size) return 1;
@@ -715,14 +781,15 @@ static inline int _compare_keys_R(FSingSet *index,FKeyHeadGeneral old_key,FTrans
 		while (pos < size && old_data[pos] == tdata->key_rest[pos]) pos++;
 		return (pos >= size) ? 1 : 0;
 		}
-	element_type cmp = tdata->head.fields.has_value ? tdata->key_rest[0] : tdata->head.fields.extra;
 	if (!old_key.fields.has_value)
-		return (old_key.fields.extra == cmp) ? 1 : 0;
+		return (old_key.fields.extra == tdata->key_rest[0]) ? 1 : 0;
 	if (!(old_data = pagesPointerNoError(index,old_key.fields.extra))) 
 		return 0;
-	return (*old_data == cmp) ? 1 : 0;
+	return (*old_data == tdata->key_rest[0]) ? 1 : 0;
 	}
 
+// returns found keyhead with obtained rlock or 0 with releases lock if nothing found
+// if needed phantom value, can return key with only normal value, it should be checked later
 static uint64_t _key_search_R(FSingSet *index,FTransformData *tdata,FReaderLock *rlock)
 	{
 	FKeyHeadGeneral *hblock;
@@ -772,30 +839,30 @@ _key_search_R_next_block:
 	return lck_readerUnlock(index->lock_set,rlock),0LL; 
 	}
 
-static void *_get_value_R(FSingSet *index,FKeyHead key_head, unsigned *vsize)
-	{
-	element_type *key_rest,*value;
-	
-	if (!key_head.has_value)
-		return *vsize = 0,NULL;
-	key_rest = pagesPointerNoError(index,key_head.extra);
-	if (!key_rest)
-		return *vsize = 0,NULL;
-	value = &key_rest[key_head.size];
-	*vsize = VALUE_SIZE_BYTES((FValueHead *)value);
-	return (void *)&value[1];
-	}
-
 // Ищем наличие одиночного ключа в таблице
 int idx_key_search(FSingSet *index,FTransformData *tdata,FReaderLock *rlock)
 	{
+	FKeyHeadGeneral found;
+	element_type *key_rest;
+	int rv;
 	do
 		{
-		if (!_key_search_R(index,tdata,rlock))
+		if (!(found.whole = _key_search_R(index,tdata,rlock)))
 			return RESULT_KEY_NOT_FOUND;
+		rv = 0;
+		if (tdata->use_phantom && !found.fields.diff_or_phantom_mark)
+			{ // If we look for phantom, but there are normal value
+			if (!found.fields.has_value)
+				{ rv = RESULT_KEY_NOT_FOUND; continue; }
+			if (!(key_rest = pagesPointerNoError(index,found.fields.extra)))
+				continue;
+			FValueHead *value_head = (FValueHead *)&key_rest[found.fields.size];
+			if (!value_head->phantom)
+				rv = RESULT_KEY_NOT_FOUND;
+			}
 		} 
 	while (!lck_readerUnlock(index->lock_set,rlock));
-	return 0;
+	return rv;
 	}
 
 int idx_key_get(FSingSet *index,FTransformData *tdata,FReaderLock *rlock,void *value_dst,unsigned *value_dst_size)
@@ -803,19 +870,32 @@ int idx_key_get(FSingSet *index,FTransformData *tdata,FReaderLock *rlock,void *v
 	FKeyHeadGeneral found;
 	unsigned vsrc_size,tocpy;
 	int rv;
-	void *value;
+	element_type *key_rest;
+	FValueHead *value_head;
 	
 	do
 		{
 		if (!(found.whole = _key_search_R(index,tdata,rlock)))
 			return *value_dst_size = 0,RESULT_KEY_NOT_FOUND;
-		value = _get_value_R(index,found.fields,&vsrc_size);
+		if (!found.fields.has_value)
+			{ vsrc_size = 0; rv = (tdata->use_phantom && !found.fields.diff_or_phantom_mark) ? RESULT_KEY_NOT_FOUND : 0; continue; }
+		if (!(key_rest = pagesPointerNoError(index,found.fields.extra)))
+			{ vsrc_size = 0; rv = 0; continue; }
+
+		value_head = (FValueHead *)&key_rest[found.fields.size];
+		if (tdata->use_phantom && !found.fields.diff_or_phantom_mark)
+			{
+			if (!value_head->phantom)
+				{ vsrc_size = 0; rv = RESULT_KEY_NOT_FOUND; continue; }
+			value_head = (FValueHead *)VALUE_PHANTOM_HEAD(value_head);
+			}
+		vsrc_size = VALUE_SIZE_BYTES(value_head);
 		if (vsrc_size > *value_dst_size)
 			tocpy = *value_dst_size, rv = RESULT_SMALL_BUFFER;
 		else
 			tocpy = vsrc_size,rv = 0;
 		if (tocpy)
-			memcpy(value_dst,value,tocpy);
+			memcpy(value_dst,(void *)&value_head[1],tocpy);
 		} 
 	while (!lck_readerUnlock(index->lock_set,rlock));
 	*value_dst_size = vsrc_size;
@@ -826,44 +906,78 @@ int idx_key_compare(FSingSet *index, FTransformData *tdata, FReaderLock *rlock, 
 	{
 	FKeyHeadGeneral found;
 	unsigned vsrc_size;
-	void *value;
-	
+	element_type *key_rest;
+	FValueHead *value_head;
+	int rv;
+
 	do
 		{
 		if (!(found.whole = _key_search_R(index,tdata,rlock)))
 			return RESULT_KEY_NOT_FOUND;
-		value = _get_value_R(index,found.fields,&vsrc_size);
-		if (vsrc_size != value_cmp_size || memcmp(value_cmp,value,value_cmp_size))
-			return RESULT_VALUE_DIFFER;
+		if (!found.fields.has_value)
+			{ rv =  (tdata->use_phantom && !found.fields.diff_or_phantom_mark) ? RESULT_KEY_NOT_FOUND : (value_cmp_size ? RESULT_VALUE_DIFFER : 0); continue; }
+	
+		key_rest = pagesPointerNoError(index,found.fields.extra);
+		if (!key_rest)
+			{ rv = 0; continue; }
+
+		value_head = (FValueHead *)&key_rest[found.fields.size];
+		if (tdata->use_phantom && !found.fields.diff_or_phantom_mark)
+			{
+			if (!value_head->phantom)
+				{ rv = RESULT_KEY_NOT_FOUND; continue; }
+			value_head = (FValueHead *)VALUE_PHANTOM_HEAD(value_head);
+			}
+		vsrc_size = VALUE_SIZE_BYTES(value_head);
+
+		if (vsrc_size != value_cmp_size || memcmp(value_cmp,(void *)&value_head[1],value_cmp_size))
+			rv = RESULT_VALUE_DIFFER;
+		else
+			rv = 0;
 		} 
 	while (!lck_readerUnlock(index->lock_set,rlock));
-	return 0;
+	return rv;
 	}
 
 int idx_key_get_cb(FSingSet *index,FTransformData *tdata,FReaderLock *rlock,CSingValueAllocator vacb,void **value,unsigned *vsize)
 	{
 	FKeyHeadGeneral found;
 	unsigned vsrc_size;
-	void *value_src,*value_dst;
+	void *value_dst;
+	element_type *key_rest;
+	FValueHead *value_head;
+	int rv;
 	
 	do
 		{
 		if (!(found.whole = _key_search_R(index,tdata,rlock)))
 			return *value=NULL,*vsize = 0,RESULT_KEY_NOT_FOUND;
-		value_src = _get_value_R(index,found.fields,&vsrc_size);
+
+		if (!found.fields.has_value || !(key_rest = pagesPointerNoError(index,found.fields.extra)))
+			{ vsrc_size = 0; value_dst = NULL; rv =  (tdata->use_phantom && !found.fields.diff_or_phantom_mark) ? RESULT_KEY_NOT_FOUND : 0; continue; }
+
+		value_head = (FValueHead *)&key_rest[found.fields.size];
+		if (tdata->use_phantom && !found.fields.diff_or_phantom_mark)
+			{
+			if (!value_head->phantom)
+				{ vsrc_size = 0; value_dst = NULL; rv = RESULT_KEY_NOT_FOUND; continue; }
+			value_head = (FValueHead *)VALUE_PHANTOM_HEAD(value_head);
+			}
+		rv = 0;
+		vsrc_size = VALUE_SIZE_BYTES(value_head);
 		if (!vsrc_size)
 			value_dst = NULL;
 		else
 			{
 			if (!(value_dst = vacb(vsrc_size)))
 				return lck_readerUnlock(index->lock_set,rlock),ERROR_NO_MEMORY;
-			memcpy(value_dst,value_src,vsrc_size);
+			memcpy(value_dst,(void *)&value_head[1],vsrc_size);
 			}
 		} 
 	while (!lck_readerUnlock(index->lock_set,rlock));
 	*vsize = vsrc_size;
 	*value = value_dst;
-	return 0;
+	return rv;
 	}
 	
 #ifdef MEMORY_CHECK
@@ -939,7 +1053,15 @@ void idx_print_chain_distrib(FSingSet *index)
 
 //////////////////////////////
 
-// Возвращает 1 если ключи одинаковы, 0 если различны
+static inline void _atomic_copy_extra(FKeyHeadGeneral *key_head,FKeyHead *new_data)
+	{
+	FKeyHead tmp_key_head = key_head->fields;
+	tmp_key_head.has_value = new_data->has_value;
+	tmp_key_head.extra = new_data->extra;
+	key_head->fields = tmp_key_head;
+	}
+
+// returns 1 if keys are equal, 0 otherwise. Return phantom (deleted) keys too
 static inline int _compare_keys_W(FSingSet *index,FKeyHeadGeneral old_key,FTransformData *tdata)
 	{
 	if ((old_key.links.next ^ tdata->head.links.next) & 0xFFFFFC7E) // (key1->size != key2->size || key1->data0 != key2->data0)
@@ -954,18 +1076,18 @@ static inline int _compare_keys_W(FSingSet *index,FKeyHeadGeneral old_key,FTrans
 		while (pos < size && old_data[pos] == tdata->key_rest[pos]) pos++;
 		return (pos >= size) ? 1 : 0;
 		}
-	element_type cmp = tdata->head.fields.has_value ? tdata->key_rest[0] : tdata->head.fields.extra;
 	if (!old_key.fields.has_value)
-		return (old_key.fields.extra == cmp) ? 1 : 0;
+		return (old_key.fields.extra == tdata->key_rest[0]) ? 1 : 0;
 	old_data = pagesPointer(index,old_key.fields.extra); 
-	return (*old_data == cmp) ? 1 : 0;
+	return (*old_data == tdata->key_rest[0]) ? 1 : 0;
 	}
 
+// Replacing value with data from tdata
 static int _alloc_and_set_rest(FSingSet *index,FTransformData *tdata)
 	{
 	unsigned sz = tdata->head.data.size_and_value >> 1,vsize = 0;
 	if (sz <= 1) return 1;
-	FValueHeadGeneral value_head;
+	FValueHeadGeneral value_head = {0};
 	if (sz >= 64) // Если есть значение - убираем его бит и добавляем размер значения
 		{
 		sz -= 64;
@@ -977,31 +1099,184 @@ static int _alloc_and_set_rest(FSingSet *index,FTransformData *tdata)
 			value_head.fields.extra_bytes = 4 - rest;
 			}
 		else
-			value_head.whole = size_e;
+			value_head.fields.size_e = size_e;
 		vsize = size_e + VALUE_HEAD_SIZE;
+		}
+	element_type *key_rest = idx_general_alloc(index,sz + vsize,&tdata->head.fields.extra);
+	if (!key_rest)	return 0;
+	memcpy(key_rest,tdata->key_rest,sz * ELEMENT_SIZE);
+	if (!vsize) return 1;
+	key_rest[sz] = value_head.whole;
+	memcpy(&key_rest[sz + VALUE_HEAD_SIZE],(element_type *)tdata->value_source,tdata->value_size);
+	if (value_head.fields.extra_bytes)
+		((char *)(&key_rest[sz + vsize]))[-1] = 0xFF;
+	return 1;
+	}
+
+// Replacing value with data from tdata and appending data from phantom_value as a phantom
+// phantom_value is a phantom or value without phantom and always has final non-zero byte
+static int _alloc_and_set_rest_with_phantom(FSingSet *index,FTransformData *tdata,FValueHeadGeneral *phantom_value)
+	{
+	unsigned sz = tdata->head.data.size_and_value >> 1,vsize = 0,extra_bytes = 0;
+	FValueHeadGeneral value_head = {0},phantom_head = *phantom_value;
+	phantom_head.fields.phantom = 1;
+
+	if (sz >= 64) // Если есть значение - убираем его бит и добавляем размер значения
+		{
+		sz -= 64;
+		unsigned size_e = tdata->value_size / ELEMENT_SIZE;
+		unsigned rest = tdata->value_size % ELEMENT_SIZE;
+		if (rest)
+			value_head.fields.size_e = ++size_e, extra_bytes = 4 - rest;
+		else
+			value_head.fields.size_e = size_e;
+		vsize = size_e;
+		}
+	else
+		tdata->head.fields.has_value = 1;  // Если значения нет, добавляем его
+
+	vsize += VALUE_HEAD_SIZE; // There will be two value heads even if first value is NULL
+	value_head.fields.phantom = 1;
+	value_head.fields.size_e += phantom_head.fields.size_e + VALUE_HEAD_SIZE;
+	value_head.fields.extra_bytes = extra_bytes + phantom_head.fields.size_e * ELEMENT_SIZE + sizeof(FValueHead);
+	element_type *key_rest;
+	if (!(key_rest = idx_general_alloc(index,sz + vsize + phantom_head.fields.size_e + VALUE_HEAD_SIZE,&tdata->head.fields.extra)))
+		return 0;
+	memcpy(key_rest,tdata->key_rest,sz * ELEMENT_SIZE);
+	key_rest[sz] = value_head.whole;
+	memcpy(&key_rest[sz + VALUE_HEAD_SIZE],tdata->value_source,tdata->value_size);
+	key_rest[sz+vsize] = phantom_head.whole;
+	memcpy(&key_rest[sz+vsize+1],&phantom_value[VALUE_HEAD_SIZE],phantom_head.fields.size_e * ELEMENT_SIZE);
+	return 1;
+	}
+
+// append value from tdata as phantom to existing key
+static int _append_phantom(FSingSet *index,FKeyHeadGeneral *existing_key,FTransformData *tdata,uint32_t allowed)
+	{
+	FKeyHeadGeneral key_head = *existing_key;
+	unsigned sz = key_head.data.size_and_value >> 1; // Размер остатка ключа
+	FValueHeadGeneral value_head;
+	element_type *key_rest = NULL;   // Остаток ключа
+	element_type *value_rest = NULL; // Тело значения
+
+	if (sz >= 64)
+		{
+		sz -= 64;
+		key_rest = pagesPointer(index,key_head.fields.extra);
+		value_head.whole = key_rest[sz];
+		if (value_head.fields.phantom)
+			{
+			if (!(allowed & KS_DELETED))
+				return KS_PRESENT;
+			}
+		else if (!(allowed & KS_ADDED))
+			return KS_SUCCESS;
+		value_rest = &key_rest[sz + VALUE_HEAD_SIZE];
+		tdata->old_key_rest = key_head.fields.extra;
+		tdata->old_key_rest_size = sz + value_head.fields.size_e + VALUE_HEAD_SIZE;
+		if (value_head.fields.extra_bytes >= ELEMENT_SIZE)
+			{ // There are phantom or extra element at the end
+			unsigned toremove = value_head.fields.extra_bytes >> LOG_BIN_MACRO(ELEMENT_SIZE);
+			value_head.fields.size_e -= toremove;
+			value_head.fields.extra_bytes -= toremove * ELEMENT_SIZE;
+			}
+		}
+	else
+		{ // Если значения нет, добавляем его
+		if (!(allowed & KS_ADDED))
+			return KS_SUCCESS;
+		value_head.whole = 0;
+		key_head.fields.has_value = 1;
+		switch (sz)
+			{
+			case 0: break;
+			case 1:
+				key_rest = &existing_key->fields.extra;
+				break;
+			default:
+				key_rest = pagesPointer(index,key_head.fields.extra);
+				tdata->old_key_rest = key_head.fields.extra;
+				tdata->old_key_rest_size = sz;
+			}
+		}
+	value_head.fields.phantom = 1;
+
+	FValueHeadGeneral phantom_head = {0};
+	unsigned ph_sz = tdata->head.data.size_and_value >> 1;
+	phantom_head.fields.phantom = 1;
+	if (ph_sz >= 64) // Если есть значение - убираем его бит и добавляем размер значения
+		{
+		ph_sz -= 64;
+		unsigned size_e = tdata->value_size / ELEMENT_SIZE;
+		unsigned rest = tdata->value_size % ELEMENT_SIZE;
+		if (rest || !tdata->value_source[tdata->value_size - 1])
+			{ // Не делится нацело или значение заканчивается на нулевой байт
+			phantom_head.fields.size_e = ++size_e;
+			phantom_head.fields.extra_bytes = 4 - rest;
+			}
+		else
+			phantom_head.fields.size_e = size_e;
+		}
+	element_type oldvsize = value_head.fields.size_e;
+	value_head.fields.size_e += phantom_head.fields.size_e + VALUE_HEAD_SIZE;
+	value_head.fields.extra_bytes += (phantom_head.fields.size_e + VALUE_HEAD_SIZE) * ELEMENT_SIZE;
+
+	element_type *rest;
+	lck_memoryLock(index); // Блокируем операции с памятью
+	if (!(rest = idx_general_alloc(index,sz + VALUE_HEAD_SIZE + value_head.fields.size_e,&key_head.fields.extra)))
+		return lck_memoryUnlock(index),ERROR_NO_SET_MEMORY;
+
+	memcpy(rest,key_rest,sz * ELEMENT_SIZE);
+	rest[sz] = value_head.whole;
+	if (oldvsize)
+		memcpy(&rest[sz + VALUE_HEAD_SIZE],value_rest,oldvsize * ELEMENT_SIZE);
+	rest[sz + VALUE_HEAD_SIZE + oldvsize] = phantom_head.whole;
+	if (tdata->value_size)
+		memcpy(&rest[sz + VALUE_HEAD_SIZE * 2 + oldvsize],tdata->value_source,tdata->value_size);
+
+	if (phantom_head.fields.extra_bytes)
+		((char *)(&rest[sz + VALUE_HEAD_SIZE + value_head.fields.size_e]))[-1] = 0xFF;
+	
+	existing_key->whole = key_head.whole;
+	return KS_CHANGED;
+	}
+
+// Replacing value with data from phantom_value as a phantom key. Returns 1 on success, 0 on failure
+static int _alloc_and_set_phantom(FSingSet *index,FTransformData *tdata,FValueHeadGeneral *phantom_value)
+	{
+	unsigned sz = tdata->head.fields.size;
+	unsigned vsize = phantom_value->fields.size_e;
+	if (!vsize)
+		{
+		tdata->head.fields.has_value = 0;
+		if (sz <= 1) return 1;
+		}
+	else
+		{
+		tdata->head.fields.has_value = 1;
+		vsize += VALUE_HEAD_SIZE;
 		}
 	element_type *key_rest;
 	if (!(key_rest = idx_general_alloc(index,sz + vsize,&tdata->head.fields.extra)))
 		return 0;
 	memcpy(key_rest,tdata->key_rest,sz * ELEMENT_SIZE);
-	if (!vsize) return 1;
-
-	key_rest[sz] = value_head.whole;
-	memcpy(&key_rest[sz+1],(element_type *)tdata->value_source,tdata->value_size);
-	if (value_head.fields.extra_bytes)
-		((char *)(&key_rest[sz+vsize]))[-1] = 0xFF;
-
+	if (!vsize) 
+		return 1;
+	FValueHeadGeneral phval = *phantom_value;
+	phval.fields.phantom = 0;
+	key_rest[sz] = phval.whole;
+	memcpy(&key_rest[sz+VALUE_HEAD_SIZE],&phantom_value[VALUE_HEAD_SIZE],phantom_value->fields.size_e * ELEMENT_SIZE);
 	return 1;
 	}
 
 static inline int _mark_value(FSingSet *index,FKeyHeadGeneral *old_key_head,FTransformData *tdata)
 	{
-	int rv = old_key_head->fields.diff_mark ^ tdata->head.fields.diff_mark;
-	old_key_head->fields.diff_mark ^= rv; // Мы под блокировкой цепочки
+	int rv = old_key_head->fields.diff_or_phantom_mark ^ tdata->head.fields.diff_or_phantom_mark;
+	old_key_head->fields.diff_or_phantom_mark ^= rv; // Мы под блокировкой цепочки
 	return rv * KS_MARKED;
 	}
 
-// Mark key as processed if needed, and return KS_CHANGED if values differ
+// Compare existing value with tdata, if differ set old value pointer and size in tdata and returns KS_DIFFER | KS_SUCCESS or returns KS_PRESENT if they are equal
 static int _compare_value(FSingSet *index,FKeyHeadGeneral *old_key_head,FTransformData *tdata)
 	{
 	unsigned old_sz = tdata->head.fields.size;
@@ -1011,7 +1286,7 @@ static int _compare_value(FSingSet *index,FKeyHeadGeneral *old_key_head,FTransfo
 			return KS_PRESENT;
 		if (old_sz > 1)
 			{
-			tdata->old_key_rest = old_key_head->fields.extra;
+			tdata->old_key_rest = old_key_head->fields.extra; // There are no old value, just key body
 			tdata->old_key_rest_size = old_sz;
 			}
 		return KS_DIFFER | KS_SUCCESS;
@@ -1040,10 +1315,77 @@ static int _replace_value(FSingSet *index,FKeyHeadGeneral *old_key_head,FTransfo
 	lck_memoryLock(index); // Блокируем операции с памятью
 	if (!_alloc_and_set_rest(index,tdata))
 		return lck_memoryUnlock(index),ERROR_NO_SET_MEMORY;
-	FKeyHead tmp_key_head = old_key_head->fields;
-	tmp_key_head.has_value = tdata->head.fields.has_value;
-	tmp_key_head.extra = tdata->head.fields.extra;
-	old_key_head->fields = tmp_key_head;
+	_atomic_copy_extra(old_key_head,&tdata->head.fields);
+	return rv | KS_CHANGED;
+	}
+
+// replace value in set with phantom keys.
+static int _replace_phantom_value(FSingSet *index,FKeyHeadGeneral *old_key_head,FTransformData *tdata, int marked)
+	{
+	int rv = marked;
+	FORMATTED_LOG_OPERATION("key %s already exists\n",tdata->key_source);
+	FValueHeadGeneral *phantom_value = NULL;
+	FValueHeadGeneral empty = {0};
+	if (!marked)
+		{  
+		if (tdata->head.fields.diff_or_phantom_mark)
+			return KS_SUCCESS; // Old deleted, new deleted - nothing to do
+		// Old normal, new normal
+		rv = _compare_value(index,old_key_head,tdata);
+		if (!(rv & KS_DIFFER))
+			return rv; // Values are equal, nothing to do
+		goto _replace_phantom_value_replace; // keep old phantom or normal value as phantom
+		}
+	else
+		{ 
+		if (!tdata->head.fields.diff_or_phantom_mark) // old deleted, new normal
+			goto _replace_phantom_value_replace;
+		else
+			{ // old normal, new deleted (deleting value and keeping oldest as phantom)
+			if (!old_key_head->fields.has_value)
+				return KS_SUCCESS; // Nothnig to do, old NULL normal became pure phantom
+			element_type *old_data = pagesPointer(index,old_key_head->fields.extra);
+			FValueHeadGeneral *old_vhead = (FValueHeadGeneral *)&old_data[old_key_head->fields.size];
+			if (!old_vhead->fields.phantom)
+				return KS_SUCCESS; // Nothing to do, old normal became pure phantom
+			phantom_value = (FValueHeadGeneral *)VALUE_PHANTOM_HEAD(&old_vhead->fields);
+			// Converting old phantom to normal form (it will be phantom because of bit in header)
+			lck_memoryLock(index); 
+			if (!_alloc_and_set_phantom(index,tdata,phantom_value))
+				return lck_memoryUnlock(index),ERROR_NO_SET_MEMORY;
+
+			unsigned old_sz = tdata->head.fields.size + old_vhead->fields.size_e + VALUE_HEAD_SIZE;
+			tdata->old_key_rest = old_key_head->fields.extra;
+			tdata->old_key_rest_size = old_sz;
+			// We don't set old value in tdata, because phantom sets does not allow diff operations
+
+			_atomic_copy_extra(old_key_head,&tdata->head.fields);
+			return rv | KS_CHANGED;
+			}
+		}
+
+_replace_phantom_value_replace:
+	if (old_key_head->fields.has_value)
+		{
+		element_type *old_data = pagesPointer(index,old_key_head->fields.extra);
+		FValueHeadGeneral *old_vhead = (FValueHeadGeneral *)&old_data[old_key_head->fields.size];
+		if (!old_vhead->fields.phantom)
+			phantom_value = old_vhead;
+		else
+			phantom_value = (FValueHeadGeneral *)VALUE_PHANTOM_HEAD(&old_vhead->fields);
+
+		unsigned old_sz = tdata->head.fields.size + old_vhead->fields.size_e + VALUE_HEAD_SIZE;
+		tdata->old_key_rest = old_key_head->fields.extra;
+		tdata->old_key_rest_size = old_sz;
+		// We don't set old value in tdata, because phantom sets does not allow diff operations
+		}
+	else
+		phantom_value = &empty;
+
+	lck_memoryLock(index); // Блокируем операции с памятью
+	if (!_alloc_and_set_rest_with_phantom(index,tdata,phantom_value))
+		return lck_memoryUnlock(index),ERROR_NO_SET_MEMORY;
+	_atomic_copy_extra(old_key_head,&tdata->head.fields);
 	return rv | KS_CHANGED;
 	}
 
@@ -1058,6 +1400,7 @@ static inline void _change_counter(FSingSet *index,unsigned hash,int diff)
 	index->head->count += diff;
 	}
 
+// This call is for diff only, we can skip phantom related work
 int idx_key_try_lookup(FSingSet *index,FTransformData *tdata)
 	{
 	FKeyHeadGeneral *hblock;
@@ -1089,6 +1432,29 @@ int idx_key_try_lookup(FSingSet *index,FTransformData *tdata)
 	return KS_SUCCESS; // We don't set KS_MARKED since key was not added
 	}
 
+static inline int _key_set_found(FSingSet *index,FTransformData *tdata,FKeyHeadGeneral *founded,uint32_t allowed)
+	{
+	int rv;
+	if (tdata->use_phantom && !founded->fields.diff_or_phantom_mark)
+		{ // Add phantom to normal or replace phantom in phantom value  
+		rv = _append_phantom(index,founded,tdata,allowed);
+		if (rv & (KS_CHANGED))
+			cp_mark_hash_entry_dirty(index->used_cpages,tdata->hash);
+		return rv;
+		}
+	rv = _mark_value(index,founded,tdata);
+	if (index->head->use_flags & UF_PHANTOM_KEYS)
+		{
+		if ((allowed & KS_DELETED) || (rv & KS_MARKED))
+			rv |= _replace_phantom_value(index,founded,tdata,rv);
+		else
+			rv |= KS_PRESENT;
+		}
+	else
+		rv |= (allowed & KS_DELETED) ? _replace_value(index,founded,tdata) : KS_PRESENT; 
+	return rv;
+	}
+
 // Добавляем или заменяем ключ , если нет цепочки коллизий. Если есть, сохраняет адрес цепочки для префетча
 // Возвращает комбинацию флагов KS_ADDED, KS_DELETED, KS_NEED_FREE, KS_MARKED, KS_ERROR
 // Может повесить блокировку памяти и не снять ее. Необходимость снятия определяется по флагам
@@ -1109,11 +1475,7 @@ int idx_key_try_set(FSingSet *index,FTransformData *tdata,uint32_t allowed)
 		{
 		if (_compare_keys_W(index,hblock[hnum],tdata)) 
 			{
-			rv = _mark_value(index,&hblock[hnum],tdata);
-			if (allowed & KS_DELETED)
-				rv |= _replace_value(index,&hblock[hnum],tdata);
-			else
-				rv |= KS_PRESENT;
+			rv = _key_set_found(index,tdata,&hblock[hnum],allowed);
 			if (rv & (KS_CHANGED | KS_MARKED))
 				cp_mark_hash_entry_dirty(index->used_cpages,tdata->hash);
 			return rv;
@@ -1151,6 +1513,7 @@ int idx_key_try_set(FSingSet *index,FTransformData *tdata,uint32_t allowed)
 	return KS_ADDED | KS_MARKED; // We set KS_MARKED since key was added to chain and old_counters was increased too
 	}
 
+// This call is for diff only, we can skip phantom related work
 int idx_key_lookup(FSingSet *index,FTransformData *tdata)
 	{
 	element_type *chain_block_ref = tdata->chain_idx_ref;
@@ -1233,11 +1596,7 @@ int idx_key_set(FSingSet *index,FTransformData *tdata,uint32_t allowed)
 				FAILURE_CHECK(!hblock[(HNUM)].fields.space_used,"empty header in chain"); \
 				if (_compare_keys_W(index,hblock[(HNUM)],tdata)) \
 					{ \
-					rv = _mark_value(index,&hblock[(HNUM)],tdata); \
-					if (allowed & KS_DELETED) \
-						rv |= _replace_value(index,&hblock[(HNUM)],tdata); \
-					else \
-						rv |= KS_PRESENT; \
+					rv = _key_set_found(index,tdata,&hblock[HNUM],allowed); \
 					if (rv & (KS_CHANGED | KS_MARKED)) \
 						cp_mark_hblock_dirty(index->used_cpages,hb_idx); \
 					return rv; \
@@ -1245,7 +1604,6 @@ int idx_key_set(FSingSet *index,FTransformData *tdata,uint32_t allowed)
 				if (hblock[(HNUM)].fields.chain_stop) \
 					{ header_num = (HNUM)+1; goto idx_key_set_not_found; } \
 				} while (0)
-
 		switch (chain_start_num)
 			{
 			CHECK_HEADER_IN_BLOCK_SET(0);
@@ -1261,11 +1619,7 @@ int idx_key_set(FSingSet *index,FTransformData *tdata,uint32_t allowed)
 			FAILURE_CHECK(!hblock[KH_BLOCK_LAST].fields.chain_stop,"open chain");
 			if (_compare_keys_W(index,hblock[KH_BLOCK_LAST],tdata))
 				{
-				rv = _mark_value(index,&hblock[KH_BLOCK_LAST],tdata);
-				if (allowed & KS_DELETED) \
-					rv |= _replace_value(index,&hblock[KH_BLOCK_LAST],tdata);
-				else \
-					rv |= KS_PRESENT; \
+				rv = _key_set_found(index,tdata,&hblock[KH_BLOCK_LAST],allowed);
 				if (rv & (KS_CHANGED | KS_MARKED))
 					cp_mark_hblock_dirty(index->used_cpages,hb_idx);
 				return rv;
@@ -1487,6 +1841,66 @@ void _del_from_chain(FSingSet *index,unsigned hash,FKeyHead *to_del,element_type
 	kh_free_last_from_chain(index,last_head,last_head_idx); // Удаляем последний
 	}
 
+static int _remove_phantom(FSingSet *index,FKeyHeadGeneral *existing_key,FTransformData *tdata)
+	{
+	FKeyHeadGeneral key_head = *existing_key;
+	unsigned sz = key_head.data.size_and_value; // Размер остатка ключа
+	if (sz < 128)
+		return KS_SUCCESS; // Key has no value and has no phantom too
+	sz = (sz - 128) >> 1; 
+
+	element_type *key_rest = pagesPointer(index,key_head.fields.extra); // Остаток ключа
+	FValueHeadGeneral value_head = (FValueHeadGeneral)key_rest[sz];
+	if (!value_head.fields.phantom)
+		return KS_SUCCESS;
+
+	tdata->old_key_rest = key_head.fields.extra;
+	tdata->old_key_rest_size = sz + VALUE_HEAD_SIZE + value_head.fields.size_e;
+
+	element_type *value_rest = &key_rest[sz + VALUE_HEAD_SIZE];
+	unsigned vsize = VALUE_SIZE_BYTES(&value_head.fields);
+	unsigned size_e = vsize / ELEMENT_SIZE;
+	unsigned ebytes = vsize % ELEMENT_SIZE;
+	if (ebytes || (size_e && !((char *)&value_rest[size_e])[-1]))
+		{ // Не делится нацело или значение заканчивается на нулевой байт
+		size_e++;
+		ebytes = 4 - ebytes;
+		}
+		
+	unsigned rest_size = sz;
+	if (size_e)
+		{
+		rest_size += VALUE_HEAD_SIZE + size_e;
+		value_head.fields.phantom = 0;
+		value_head.fields.size_e = size_e;
+		value_head.fields.extra_bytes = ebytes;
+		}
+	else 
+		{
+		sz = rest_size = 0;
+		key_head.fields.has_value = 0;
+		}
+
+	lck_memoryLock(index); // Блокируем операции с памятью
+	if (rest_size)
+		{
+		element_type *rest;
+		if (!(rest = idx_general_alloc(index,rest_size,&key_head.fields.extra)))
+			return lck_memoryUnlock(index),ERROR_NO_SET_MEMORY;
+
+		memcpy(rest,key_rest,sz * ELEMENT_SIZE);
+		if (size_e)
+			{
+			rest[sz] = value_head.whole;
+			memcpy(&rest[sz + VALUE_HEAD_SIZE],value_rest,size_e * ELEMENT_SIZE);
+			if (ebytes)
+				((char *)(&rest[sz + VALUE_HEAD_SIZE + size_e]))[-1] = 0xFF;
+			}
+		}
+	existing_key->whole = key_head.whole;
+	return KS_CHANGED;
+	}
+
 int idx_key_del(FSingSet *index,FTransformData *tdata)
 	{
 	FKeyHead *to_del = NULL; // Заголовок для удаления (найденный)
@@ -1506,6 +1920,13 @@ int idx_key_del(FSingSet *index,FTransformData *tdata)
 		last_head = &table_block[hnum];
 		if (_compare_keys_W(index,*last_head,tdata))
 			{
+			if (tdata->use_phantom && !last_head->fields.diff_or_phantom_mark)
+				{
+				int rv = _remove_phantom(index,last_head,tdata);
+				if (rv & KS_CHANGED)
+					cp_mark_hash_entry_dirty(index->used_cpages,tdata->hash);
+				return rv;
+				}
 			to_del = &last_head->fields;
 			hnum += ht_chain->dir;
 			while (table_block[hnum].fields.space_used)
@@ -1526,13 +1947,33 @@ int idx_key_del(FSingSet *index,FTransformData *tdata)
 		if (to_del)
 			return _del_one_after_hash_table(index,tdata->hash,to_del,last_head,inum,ht_links_ref),KS_DELETED;
 		if (_compare_keys_W(index,*last_head,tdata))
+			{
+			if (tdata->use_phantom && !last_head->fields.diff_or_phantom_mark)
+				{
+				int rv = _remove_phantom(index,last_head,tdata);
+				if (rv & KS_CHANGED)
+					cp_mark_hblock_dirty(index->used_cpages,inum);
+				return rv;
+				}
 			return _del_last_after_hash_table(index,tdata->hash,last_head,inum,ht_links_ref),KS_DELETED;
+			}
 		return KS_SUCCESS;
 		}
 	if (to_del)
 		goto idx_key_del_found;
 	if (_compare_keys_W(index,*last_head,tdata))
-		{ khb_idx = inum; to_del = &last_head->fields; goto idx_key_del_found; }
+		{
+		if (tdata->use_phantom && !last_head->fields.diff_or_phantom_mark)
+			{
+			int rv = _remove_phantom(index,last_head,tdata);
+			if (rv & KS_CHANGED)
+				cp_mark_hblock_dirty(index->used_cpages,inum);
+			return rv;
+			}
+		khb_idx = inum; 
+		to_del = &last_head->fields; 
+		goto idx_key_del_found; 
+		}
 	do 
 		{
 		last_head++;
@@ -1550,6 +1991,13 @@ int idx_key_del(FSingSet *index,FTransformData *tdata)
 		FAILURE_CHECK(last_size > KEYHEADS_IN_BLOCK,"too long chain");
 		if (_compare_keys_W(index,*last_head,tdata))
 			{
+			if (tdata->use_phantom && !last_head->fields.diff_or_phantom_mark)
+				{
+				int rv = _remove_phantom(index,last_head,tdata);
+				if (rv & KS_CHANGED)
+					cp_mark_hblock_dirty(index->used_cpages,inum);
+				return rv;
+				}
 			if (last_head->fields.chain_stop)
 				{
 				if (prev_block && last_size == 2)
@@ -1608,6 +2056,42 @@ static int result_output(FSingSet *kvset,const FKeyHeadGeneral head,FWriteBuffer
 	return size;
 	}
 
+static int phantom_output(FSingSet *kvset,const FKeyHeadGeneral head,FWriteBufferSet *wbs)
+	{
+	element_type *key_rest = (head.data.size_and_value > 3) ? pagesPointer(kvset,head.fields.extra) : NULL;
+	char *name = fbw_get_ref(wbs);
+	name[0] = '+';
+	unsigned keysize = cd_decode(&name[1],&head.fields,key_rest);
+	unsigned size = keysize + 1;
+
+	if (head.fields.diff_or_phantom_mark)
+		name[0] = '-';
+	if (head.fields.has_value)
+		{
+		element_type *value = &key_rest[head.fields.size];
+		if (((FValueHead *)value)->phantom)
+			{
+			unsigned *phantom_value = VALUE_PHANTOM_HEAD((FValueHead *)value);
+			name[0] = '!';
+			unsigned ph_vsize = VALUE_SIZE_BYTES((FValueHead *)phantom_value);
+			name[size++] = kvset->head->delimiter;
+			memcpy(&name[size],(const char *)&phantom_value[1],ph_vsize);
+			size += ph_vsize;
+			name[size++] = '\n';
+			name[size++] = '=';
+			memcpy(&name[size],&name[1],keysize);
+			size += keysize;
+			}
+		unsigned vsize = VALUE_SIZE_BYTES((FValueHead *)value);
+		name[size++] = kvset->head->delimiter;
+		memcpy(&name[size],(const char *)&value[1],vsize);
+		size += vsize;
+		}
+	name[size++] = '\n';
+	fbw_shift_pos(wbs,size);
+	return size;
+	}
+
 static void process_unmarked_from_hash_chain(FSingSet *index,unsigned hash,FWriteBufferSet *wbs)
 	{
 	FKeyHeadGeneral *next_key,*work_key;
@@ -1625,12 +2109,12 @@ static void process_unmarked_from_hash_chain(FSingSet *index,unsigned hash,FWrit
 	while (work_key->fields.space_used)
 		{
 		next_key = &table_block[hnum += ht_chain->dir];
-		if (next_key->fields.space_used && next_key->data.size_and_value > 3 && next_key->fields.diff_mark != diff_mark)
+		if (next_key->fields.space_used && next_key->data.size_and_value > 3 && next_key->fields.diff_or_phantom_mark != diff_mark)
 			__builtin_prefetch(pagesPointer(index,next_key->fields.extra));
-		if (work_key->fields.diff_mark != diff_mark)
+		if (work_key->fields.diff_or_phantom_mark != diff_mark)
 			{
 			cp_mark_hash_entry_dirty(index->used_cpages,hash);
-			work_key->fields.diff_mark = diff_mark;
+			work_key->fields.diff_or_phantom_mark = diff_mark;
 			fbw_add_sym(wbs,'-');
 			result_output(index,*work_key,wbs);
 			fbw_commit(wbs);
@@ -1650,13 +2134,13 @@ process_unmarked_from_hash_chain_next_cycle:
 		if (!work_key->fields.chain_stop)
 			{ 
 			next_key = &last_block[++hnum];
-			if (next_key->fields.space_used && next_key->data.size_and_value > 3 && next_key->fields.diff_mark != diff_mark)
+			if (next_key->fields.space_used && next_key->data.size_and_value > 3 && next_key->fields.diff_or_phantom_mark != diff_mark)
 				__builtin_prefetch(pagesPointer(index,next_key->fields.extra));
 			}
-		if (work_key->fields.diff_mark != diff_mark)
+		if (work_key->fields.diff_or_phantom_mark != diff_mark)
 			{
 			cp_mark_hblock_dirty(index->used_cpages,KH_BLOCK_IDX(inum));
-			work_key->fields.diff_mark = diff_mark;
+			work_key->fields.diff_or_phantom_mark = diff_mark;
 			fbw_add_sym(wbs,'-');
 			result_output(index,*work_key,wbs);
 			fbw_commit(wbs);
@@ -1670,9 +2154,9 @@ process_unmarked_from_hash_chain_next_cycle:
 		inum = work_key->links.next;
 		goto process_unmarked_from_hash_chain_next_cycle;
 		}
-	if (work_key->fields.diff_mark != diff_mark)
+	if (work_key->fields.diff_or_phantom_mark != diff_mark)
 		{
-		work_key->fields.diff_mark = diff_mark;
+		work_key->fields.diff_or_phantom_mark = diff_mark;
 		fbw_add_sym(wbs,'-');
 		result_output(index,*work_key,wbs);
 		fbw_commit(wbs);
@@ -1709,7 +2193,7 @@ del_unmarked_from_hash_chain_begin:
 	while (table_block[hnum].fields.space_used)
 		{
 		last_head = &table_block[hnum];
-		if (!key_head && last_head->fields.diff_mark != diff_mark)
+		if (!key_head && last_head->fields.diff_or_phantom_mark != diff_mark)
 			key_head = last_head;
 		hnum += ht_chain->dir;
 		}
@@ -1729,7 +2213,7 @@ del_unmarked_from_hash_chain_begin:
 			{
 			last_head = &last_block[hnum];
 			FAILURE_CHECK(!last_head->fields.space_used,"empty head in chain");
-			if (!key_head && last_head->fields.diff_mark != diff_mark)
+			if (!key_head && last_head->fields.diff_or_phantom_mark != diff_mark)
 				khb_idx = last_block_idx, key_head = last_head;
 			last_size++;
 			if (last_head->fields.chain_stop)
@@ -1743,7 +2227,7 @@ del_unmarked_from_hash_chain_begin:
 			{ // В последнем блоке тоже данные
 			last_head = &last_block[KH_BLOCK_LAST];
 			FAILURE_CHECK(!last_head->fields.chain_stop,"open chain");
-			if (!key_head && last_head->fields.diff_mark != diff_mark) 
+			if (!key_head && last_head->fields.diff_or_phantom_mark != diff_mark) 
 				khb_idx = last_block_idx, key_head = last_head;
 			last_size++;
 			if (key_head) goto del_unmarked_from_hash_chain_found;
@@ -1873,10 +2357,7 @@ void idx_process_unmarked(FSingSet *index,unsigned *counters,FWriteBufferSet *wb
 static inline int key_output(FSingSet *kvset,FKeyHeadGeneral key_data,FWriteBufferSet *wbs)
 	{
 	fbw_check_space(wbs);
-	int add = 0;
-	if (kvset->head->use_flags & UF_PHANTOM_KEYS)
-		fbw_add_sym(wbs,key_data.fields.diff_mark?'-':'+'),add = 1;
-	return add + result_output(kvset,key_data,wbs);
+	return (kvset->head->use_flags & UF_PHANTOM_KEYS) ? phantom_output(kvset,key_data,wbs) : result_output(kvset,key_data,wbs);
 	}
 
 static int dump_hash_chain(FSingSet *index,unsigned hash,FWriteBufferSet *wbs)
@@ -1914,12 +2395,8 @@ static int dump_hash_chain(FSingSet *index,unsigned hash,FWriteBufferSet *wbs)
 		}
 	inum = key_data.links_array.links[ht_chain->link_num];
 	if (inum == KH_ZERO_REF)
-		{
-		rlock.keep = 0;
-		if (!lck_readerUnlock(index->lock_set,&rlock)) 
-			return 1;
 		goto dump_hash_chain_check_last;
-		}
+
 process_hash_chain_next_cycle:
 	last_block = (FKeyHeadGeneral *)regionPointer(index,KH_BLOCK_IDX(inum),KH_BLOCK_SIZE);
 	hnum = KH_BLOCK_NUM(inum);
@@ -1934,10 +2411,10 @@ process_hash_chain_next_cycle:
 			}
 		last_size = key_output(index,key_data,wbs);
 		dumped[dumpedcnt++] = key_data.whole;
-		if (!lck_readerUnlockCond(index->lock_set,&rlock,hash))
-			goto dump_hash_chain_exit;
 		if (key_data.fields.chain_stop)
 			goto dump_hash_chain_check_last; // It was the last key in chain
+		if (!lck_readerUnlockCond(index->lock_set,&rlock,hash))
+			goto dump_hash_chain_exit;
 		}
 	key_data.whole = __atomic_load_n(&last_block[KH_BLOCK_LAST].whole,__ATOMIC_RELAXED);
 	if (!key_data.fields.space_used)
@@ -1960,6 +2437,10 @@ process_hash_chain_next_cycle:
 		goto dump_hash_chain_exit;
 
 dump_hash_chain_check_last:
+   rlock.keep = 0;
+	if (!lck_readerUnlock(index->lock_set,&rlock))
+		goto dump_hash_chain_exit;
+
 	rv = 0;
 	if (dumpedcnt > 2)
 		{
@@ -2059,7 +2540,7 @@ static int iterate_hash_chain(FSingSet *index,unsigned hash,CSingIterateCallback
 	while (work_key->fields.space_used)
 		{
 		next_key = &table_block[hnum += ht_chain->dir];
-		if (next_key->fields.space_used && next_key->data.size_and_value > 3 && next_key->fields.diff_mark != diff_mark)
+		if (next_key->fields.space_used && next_key->data.size_and_value > 3 && next_key->fields.diff_or_phantom_mark != diff_mark)
 			__builtin_prefetch(pagesPointer(index,next_key->fields.extra));
 		cb_call(index,work_key,cb,param);
 		work_key = next_key;
@@ -2068,7 +2549,7 @@ static int iterate_hash_chain(FSingSet *index,unsigned hash,CSingIterateCallback
 	if (inum == KH_ZERO_REF)
 		return 0;
 
-process_unmarked_from_hash_chain_next_cycle:
+iterate_hash_chain_next_cycle:
 	last_block = (FKeyHeadGeneral *)regionPointer(index,KH_BLOCK_IDX(inum),KH_BLOCK_SIZE);
 	hnum = KH_BLOCK_NUM(inum);
 	while (hnum < KH_BLOCK_LAST)
@@ -2077,7 +2558,7 @@ process_unmarked_from_hash_chain_next_cycle:
 		if (!work_key->fields.chain_stop)
 			{ 
 			next_key = &last_block[++hnum];
-			if (next_key->fields.space_used && next_key->data.size_and_value > 3 && next_key->fields.diff_mark != diff_mark)
+			if (next_key->fields.space_used && next_key->data.size_and_value > 3 && next_key->fields.diff_or_phantom_mark != diff_mark)
 				__builtin_prefetch(pagesPointer(index,next_key->fields.extra));
 			}
 		cb_call(index,work_key,cb,param);
@@ -2088,7 +2569,7 @@ process_unmarked_from_hash_chain_next_cycle:
 	if (!work_key->fields.space_used)
 		{
 		inum = work_key->links.next;
-		goto process_unmarked_from_hash_chain_next_cycle;
+		goto iterate_hash_chain_next_cycle;
 		}
 	cb_call(index,work_key,cb,param);
 	return 0;
@@ -2178,7 +2659,7 @@ int check_element(FSingSet *index,FKeyHead *key_head,FCheckData *check_data)
 	unsigned sz = key_head->size, k_size = key_head->size;
 	FValueHead *vhead;
 	element_type *key_rest = NULL;
-	if (key_head->diff_mark != (index->head->state_flags & SF_DIFF_MARK) ? 1 : 0)
+	if (!(index->head->use_flags & UF_PHANTOM_KEYS) && key_head->diff_or_phantom_mark != (index->head->state_flags & SF_DIFF_MARK) ? 1 : 0)
 		return idx_set_formatted_error(index,"Key diff mark is not equal set diff mark"),1;
 
 	if (key_head->has_value)

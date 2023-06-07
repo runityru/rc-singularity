@@ -41,14 +41,21 @@ int _load_page(FSingSet *index,unsigned pnum)
 		return 1;
 
 	int rv = 0;
-	file_lock(index->disk_pages_fd,LOCK_EX);
+	int disk_pages_fd = index->disk_pages_fd;
+	
+	if (disk_pages_fd == -1 && (disk_pages_fd = open(index->filenames.pages_file,O_RDONLY)) == -1) 
+		return 0;
+
+	file_lock(disk_pages_fd,LOCK_EX); // Preventing concurent reading
 	if (!cp_is_page_loaded(index->real_cpages,pnum))
 		{
-		lseek(index->disk_pages_fd, (off_t)pnum * PAGE_SIZE_BYTES, SEEK_SET);
-		if (file_read(index->disk_pages_fd,index->pages[pnum],PAGE_SIZE_BYTES) == PAGE_SIZE_BYTES)
+		lseek(disk_pages_fd, (off_t)pnum * PAGE_SIZE_BYTES, SEEK_SET);
+		if (file_read(disk_pages_fd,index->pages[pnum],PAGE_SIZE_BYTES) == PAGE_SIZE_BYTES)
 			cp_mark_page_loaded(index->real_cpages,pnum), rv = 1;
 		}
-	file_lock(index->disk_pages_fd,LOCK_UN);
+	file_lock(disk_pages_fd,LOCK_UN);
+	if (index->disk_pages_fd == -1)
+		close(disk_pages_fd);
 	return rv;
 	}
 	

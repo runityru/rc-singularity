@@ -71,4 +71,6 @@ size_t file_write(int fd,void *buf, size_t size);
 int file_lock(int fd,int operation);
 off_t file_size(char *filename);
 
+int file_link(const char *oldname, const char *newname);
+
 #endif

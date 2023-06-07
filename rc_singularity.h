@@ -7,6 +7,11 @@
 #ifndef _RC_SINGULARITY_H
 #define _RC_SINGULARITY_H
 
+#ifdef __INTELLISENSE__
+#define __null 0
+#endif
+
+#include <stddef.h>
 #include <stdint.h>
 
 // KVset use flags
@@ -19,6 +24,8 @@
 #define SING_CF_PARSE_ERRORS 0x200
 #define SING_CF_FULL_LOAD 0x400
 #define SING_CF_READER 0x800
+#define SING_CF_KEEP_LOCK 0x1000
+#define SING_CF_UNLOAD_ON_CLOSE 0x2000
 
 #ifndef _SING_CSV_FILE
 #define _SING_CSV_FILE
@@ -58,6 +65,7 @@ typedef enum ESingLockModeTg
 #define SING_RESULT_SMALL_BUFFER 0x0C00
 #define SING_RESULT_VALUE_DIFFER 0x0D00
 #define SING_RESULT_KEY_PRESENT 0x0E00
+#define SING_RESULT_LOCKED 0x0F00
 
 typedef struct FSingSetTg FSingSet;
 typedef struct FKeyHeadTg FKeyHead;
@@ -79,8 +87,8 @@ void sing_delete_config(FSingConfig *config);
 FSingSet *sing_create_set(const char *setname,const FSingCSVFile *csv_file,unsigned keys_count,unsigned flags,unsigned lock_mode,FSingConfig *config);
 FSingSet *sing_link_set(const char *setname,unsigned flags,FSingConfig *config);
 void sing_unlink_set(FSingSet *index);
-void sing_unload_set(FSingSet *index);
-void sing_delete_set(FSingSet *index);
+int sing_unload_set(FSingSet *index);
+int sing_delete_set(FSingSet *index);
 
 // utility calls 
 
@@ -89,10 +97,12 @@ const char *sing_get_error(FSingSet *index);
 uint32_t sing_get_memsize(FSingSet *index);
 int sing_check_set(FSingSet *index);
 unsigned sing_get_mode(FSingSet *index);
+int sing_unload_on_close(FSingSet *kvset,unsigned unload);
 
 // locks and disk sinchronisation
 
 int sing_lock_W(FSingSet *kvset);
+int sing_try_lock_W(FSingSet *kvset);
 int sing_unlock_commit(FSingSet *kvset,uint32_t *saved);
 int sing_unlock_revert(FSingSet *kvset);
 int sing_flush(FSingSet *kvset,uint32_t *saved);
@@ -102,20 +112,25 @@ int sing_revert(FSingSet *kvset);
 
 int sing_add_file(FSingSet *kvset,const FSingCSVFile *csv_file);
 int sing_sub_file(FSingSet *kvset,const FSingCSVFile *csv_file);
+int sing_remove_file(FSingSet *kvset,const FSingCSVFile *csv_file);
 int sing_diff_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile);
 int sing_diff_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file,const char *outfile);
 int sing_intersect_file(FSingSet *kvset,const FSingCSVFile *csv_file);
 int sing_intersect_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file);
-int sing_dump(FSingSet *kvset,char *outfile,unsigned flags);
+int sing_dump(FSingSet *kvset,char *outfile);
 
 // simple reading calls
 
 #define SING_KEY_SIZE_UNKNOWN 0xFFFFFFFF
 
 int sing_key_present_n(FSingSet *kvset,const char *key,unsigned ksize);
+int sing_phantom_present_n(FSingSet *kvset,const char *key,unsigned ksize);
 
 static inline int sing_key_present(FSingSet *kvset,const char *key)
 	{ return sing_key_present_n(kvset,key,SING_KEY_SIZE_UNKNOWN); }
+
+static inline int sing_phantom_present(FSingSet *kvset,const char *key)
+	{ return sing_phantom_present_n(kvset,key,SING_KEY_SIZE_UNKNOWN); }
 
 int sing_keys_present_n(FSingSet *kvset,const char *const *keys,const unsigned *ksizes,unsigned count,int *results);
 
@@ -123,9 +138,13 @@ static inline int sing_keys_present(FSingSet *kvset,const char *const *keys,unsi
 	{ return sing_keys_present_n(kvset,keys,NULL,count,results); }
 
 int sing_value_equal_n(FSingSet *kvset,const char *key,unsigned ksize,const void *value,unsigned vsize);
+int sing_phantom_equal_n(FSingSet *kvset,const char *key,unsigned ksize,const void *value,unsigned vsize);
 
 static inline int sing_value_equal(FSingSet *kvset,const char *key,const void *value,unsigned vsize)
 	{ return sing_value_equal_n(kvset,key,SING_KEY_SIZE_UNKNOWN,value,vsize); }
+
+static inline int sing_phantom_equal(FSingSet *kvset,const char *key,const void *value,unsigned vsize)
+	{ return sing_phantom_equal_n(kvset,key,SING_KEY_SIZE_UNKNOWN,value,vsize); }
 
 int sing_values_equal_n(FSingSet *kvset,const char *const *keys, const unsigned *ksizes, unsigned count,const void **values,const unsigned *vsizes,int *results);
 
@@ -137,9 +156,13 @@ static inline int sing_values_equal(FSingSet *kvset,const char *const *keys, uns
 typedef void *(CSingValueAllocator)(unsigned size);
 
 int sing_get_value_cb_n(FSingSet *kvset,const char *key,unsigned ksize,CSingValueAllocator vacb,void **value,unsigned *vsize);
+int sing_get_phantom_cb_n(FSingSet *kvset,const char *key,unsigned ksize,CSingValueAllocator vacb,void **value,unsigned *vsize);
 
 static inline int sing_get_value_cb(FSingSet *kvset,const char *key,CSingValueAllocator vacb,void **value,unsigned *vsize)
 	{ return sing_get_value_cb_n(kvset,key,SING_KEY_SIZE_UNKNOWN,vacb,value,vsize); }
+
+static inline int sing_get_phantom_cb(FSingSet *kvset,const char *key,CSingValueAllocator vacb,void **value,unsigned *vsize)
+	{ return sing_get_phantom_cb_n(kvset,key,SING_KEY_SIZE_UNKNOWN,vacb,value,vsize); }
 
 // callback getting of many keys
 
@@ -151,9 +174,13 @@ static inline int sing_get_values_cb(FSingSet *kvset,const char *const *keys,uns
 // preallocates getting of one key
 
 int sing_get_value_n(FSingSet *kvset,const char *key,unsigned ksize,void *value,unsigned *vsize);
+int sing_get_phantom_n(FSingSet *kvset,const char *key,unsigned ksize,void *value,unsigned *vsize);
 
 static inline int sing_get_value(FSingSet *kvset,const char *key,void *value,unsigned *vsize)
 	{ return sing_get_value_n(kvset,key,SING_KEY_SIZE_UNKNOWN,value,vsize); }
+
+static inline int sing_get_phantom(FSingSet *kvset,const char *key,void *value,unsigned *vsize)
+	{ return sing_get_phantom_n(kvset,key,SING_KEY_SIZE_UNKNOWN,value,vsize); }
 
 static inline int sing_get_value32i_n(FSingSet *kvset,const char *key,unsigned ksize,int32_t *value)
 	{ unsigned vsize = 4; int rv = sing_get_value_n(kvset,key,ksize,value,&vsize); return (rv == SING_RESULT_SMALL_BUFFER) ? 0 : rv; }
@@ -245,9 +272,13 @@ static inline int sing_get_pointers(FSingSet *kvset,const char *const *keys,unsi
 // modification calls
 
 int sing_add_key_n(FSingSet *kvset,const char *key,unsigned ksize,void *value,unsigned vsize);
+int sing_add_phantom_n(FSingSet *kvset,const char *key,unsigned ksize,void *value,unsigned vsize);
 
 static inline int sing_add_key(FSingSet *kvset,const char *key,void *value,unsigned vsize)
 	{ return sing_add_key_n(kvset,key,SING_KEY_SIZE_UNKNOWN,value,vsize); }
+
+static inline int sing_add_phantom(FSingSet *kvset,const char *key,void *value,unsigned vsize)
+	{ return sing_add_phantom_n(kvset,key,SING_KEY_SIZE_UNKNOWN,value,vsize); }
 
 int sing_add_keys_n(FSingSet *kvset,const char *const *keys,const unsigned *ksizes,unsigned count,const void *const *values,const unsigned *vsizes,int *results);
 
@@ -255,9 +286,13 @@ static inline int sing_add_keys(FSingSet *kvset,const char *const *keys,unsigned
 	{ return sing_add_keys_n(kvset,keys,NULL,count,values,vsizes,results); }
 
 int sing_set_key_n(FSingSet *kvset,const char *key,unsigned ksize,void *value,unsigned vsize);
+int sing_set_phantom_n(FSingSet *kvset,const char *key,unsigned ksize,void *value,unsigned vsize);
 
 static inline int sing_set_key(FSingSet *kvset,const char *key,void *value,unsigned vsize)
 	{ return sing_set_key_n(kvset,key,SING_KEY_SIZE_UNKNOWN,value,vsize); }
+
+static inline int sing_set_phantom(FSingSet *kvset,const char *key,void *value,unsigned vsize)
+	{ return sing_set_phantom_n(kvset,key,SING_KEY_SIZE_UNKNOWN,value,vsize); }
 
 static inline int sing_set_key32i_n(FSingSet *kvset,const char *key,unsigned ksize,int32_t value)
 	{ return sing_set_key_n(kvset,key,ksize,&value,sizeof(int32_t)); }
@@ -300,6 +335,14 @@ static inline int sing_set_keys(FSingSet *kvset,const char *const *keys,unsigned
 	{ return sing_set_keys_n(kvset,keys,NULL,count,values,vsizes,results); }
 
 int sing_del_key_n(FSingSet *kvset,const char *key,unsigned ksize);
+int sing_del_phantom_n(FSingSet *kvset,const char *key,unsigned ksize);
+int sing_del_full_n(FSingSet *kvset,const char *key,unsigned ksize);
+
+static inline int sing_del_phantom(FSingSet *kvset,const char *key)
+	{ return sing_del_phantom_n(kvset,key,SING_KEY_SIZE_UNKNOWN); }
+
+static inline int sing_del_full(FSingSet *kvset,const char *key)
+	{ return sing_del_full_n(kvset,key,SING_KEY_SIZE_UNKNOWN); }
 
 static inline int sing_del_key(FSingSet *kvset,const char *key)
 	{ return sing_del_key_n(kvset,key,SING_KEY_SIZE_UNKNOWN); }

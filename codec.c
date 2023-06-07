@@ -93,11 +93,7 @@ void cd_encode(FTransformData *tdata)
 			
 			tdata->head.fields.data0 = val;
 			tdata->hash = HASH_TO_HTSIZE(HASH_FUNC(val,hash),tdata->hash);
-	
-			if (!tdata->value_size)
-				tdata->head.fields.extra = hash;
-			else
-				tdata->key_rest[0] = hash;
+			tdata->head.fields.extra = tdata->key_rest[0] = hash; // Putting key tail to both possible places
 			return;
 		case 4:
 			hash = tdata->transformed_key[3] * 40 * 40 * 40;

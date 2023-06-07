@@ -87,15 +87,19 @@ FSingConfig *sing_config_get_default(void)
 
 void cnf_set_error(FSingConfig *config,const char *message)
 	{
-	strncpy(config->last_error,message,511);
+	if (config)
+		strncpy(config->last_error,message,CF_ERROR_MSG_LEN - 1);
 	}
 	
 void cnf_set_formatted_error(FSingConfig *config,const char *format,...)
 	{
 	va_list args;
-	va_start (args, format);
-	vsnprintf (config->last_error,511,format, args);
-	va_end (args);
+	if (config)
+		{
+		va_start (args, format);
+		vsnprintf (config->last_error,CF_ERROR_MSG_LEN - 1,format, args);
+		va_end (args);
+		}
 	}
 
 void sing_config_set_connection_flags(FSingConfig *config,unsigned flags)

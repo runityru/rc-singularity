@@ -16,16 +16,17 @@ void help_message(void)
 "\n"
 "Usage: sing_handler [sharename] [options]\n"
 "\n"
-"  If sharename is not specified, '-r filename' option should be present.\n" 
+"  If sharename is not specified, '-r filename' option should be present. In this case\n" 
 "  '-u' option, 'c' and 'n' flag of -r option will be in work even if not specified\n"
 "\n"
 "Options can be one of the following:\n"
 "\n"
-"  -a[e|n|f|x] key [value] - add key to share. In case of 'n' flag, value is treated as 4 byte integer,\n"
-"                           if 'f' is used - as 4 byte float, in case of 'x' - as hexadecimal set of bytes,\n"
-"                           and as string otherhwise. 'e' flag mean there is no value.\n"
-"  -e key                 - delete key from share\n"
-"  -c key                 - read key from share. Print string 'key:value' to STDOUT.\n"
+"  -A[e|n|f|d|x] key [value] - add key to share. In case of 'n' flag, value is treated as 4 byte integer,\n"
+"                           if 'f' is used - as 4 byte float, if 'd' - as double, in case of 'x' - as ,\n"
+"                           hexadecimal set of bytes, and as string otherhwise. 'e' flag mean there is no value.\n"
+"  -E key                 - erase key from share (no phantom make)\n"
+"  -S key                 - delete key from share\n"
+"  -M[n|f|d|x] key        - read key from share. Print string 'key: value' to STDOUT.\n"
 "  -q                     - print count of keys in share to STDOUT.\n"
 "  -d[n[f]]	csv_file_desc - compare share content with csv file on key based basis and print result\n"
 "                           to STDOUT in form of lines with '+' or '-' as first character. Share content\n" 
@@ -40,18 +41,21 @@ void help_message(void)
 "                           access to share during operation, so data consistence is not guaranteed.\n"
 "  -p csv_file_desc	       - add file content (format of diff output from -d option can be used too) to share.\n"
 "  -s csv_file_desc         - substract file content (format of diff output from -d option can be used too, \n"
-"                           operations will be inversed in this case) from share.\n\n" 
+"                           operations will be inversed in this case) from share.\n\n"
+"  -e csv_file_desc         - erase keys from file (format of diff output from -d option can be used too, \n"
+"                           but operation sign is ignored and all keys will be deleted) from share. This option\n"
+"                           really delete keys, no make phantoms\n\n"
 "accompanied with any of the following (-r,-f,-u can be used alone too):\n\n"
 "  -u                     - unload share from memory after finish.\n"
 "  -r[c][n][d] [csv_file_desc] - (re)create share from csv filename. Use 'c' to add some extra info\n"
-"                           for faster bulk processing (options -d -m). If filename is not specified\n"
+"                           for faster bulk processing (options -d -m). If csv_file_desc is not specified\n"
 "                           share will be cleared. Use 'n' to disable persistence for this share,\n"
 "                           but beware that share with no persistence can not be recovered after\n"
 "                           software failure during writing. Programs work with previous content\n"
 "                           of share during share recreation.\n"
 "                           Use 'd' option to allow phantom deleted keys. This is useful for merging diff\n"
 "                           files without known initial state. But such shares can't be used with -d option.\n"
-"  -f[c][n] csv_file_desc - same as -r (mutually exclusive) but share created only if not present. File\n"
+"  -f[c][n][d] csv_file_desc - same as -r (mutually exclusive) but share created only if not present. File\n"
 "                           filename should be present except in case when -dnf key is used.\n"
 "  -n number              - additional option for -r and -f for specifying approximated number of keys.\n"
 "  -j [tab|space|comma|   - additional option for -r and -f. This symbol will be used as a column separator\n"
@@ -68,10 +72,10 @@ void help_message(void)
 "  filename [csv_options]\n\n"
 "where csv_options can be any combination of:\n\n"
 "  -t [tab|space|...]     - recognize this symbol as column separator in file. Default is tab.\n"
-"  -k column_num          - number of key column in csv-like source files\n"
+"  -k column_num          - number of the key column in csv-like source files\n"
 "  -v c_num1[,c_num2...]  - comma joined numbers of value columns for csv-like source files. Columns\n"
 "                           will be concatenated with share separator symbol (-j key) in specified order\n"
-"  -v rest                - all columns except key one will be used as value\n"
+"  -v rest                - all columns except the key one will be used as value\n"
 "\n"
 "Share can be checked on errors with key:\n"
 "  --check\n"
@@ -83,7 +87,7 @@ void help_message(void)
 "Examples:\n"
 "  ./sing_handler -r file1 -d file2 -o resultfile\n"
 "    - compare files file1 and file2 and print the difference to resultfile. No side effects but there\n"
-"      should be enoughtGG memory for load union of file1 and file2 key sets. Some kind of diff utility.\n"
+"      should be enought memory for load union of file1 and file2 key sets. Some kind of diff utility.\n"
 "\n"
 "  ./sing_handler sharename -fc file1 -dnf file2 -o resultfile -u\n"
 "    - compare file file2 with share sharename and print the difference to resultfile. Share will be\n"
@@ -110,11 +114,16 @@ static char _get_delimiter(char *desc)
 	return desc[0];
 	}
 
-static EOperation KEY_OPERATION[26] = {
-	SO_SetKey,SO_None,SO_PrintKey,SO_Diff,SO_DelKey,SO_None,SO_None,SO_None, // a-h
+static EOperation KEY_OPERATION[58] = {
+	SO_SetKey,SO_None,SO_None,SO_None,SO_EraseKey,SO_None,SO_None,SO_None, // A-H
+	SO_None,SO_None,SO_None,SO_None,SO_PrintKey,SO_None,SO_None,SO_None, // I-P
+	SO_None,SO_None,SO_DelKey,SO_None,SO_None,SO_None,SO_None,SO_None, // Q-X
+	SO_None,SO_None, // Y-Z
+	SO_None,SO_None,SO_None,SO_None,SO_None,SO_None, // some chars
+	SO_None,SO_None,SO_None,SO_Diff,SO_None,SO_None,SO_None,SO_None, // a-h
 	SO_None,SO_None,SO_None,SO_None,SO_Dump,SO_None,SO_None,SO_Process, // i-p
 	SO_Size,SO_None,SO_Sub,SO_None,SO_None,SO_None,SO_None,SO_None, // q-x
-	SO_None,SO_None // y-z
+	SO_None,SO_None, // y-z
 };
 	
 FHandlerConfig *get_config(int argc, char *argv[],char *errbuf)
@@ -144,7 +153,7 @@ FHandlerConfig *get_config(int argc, char *argv[],char *errbuf)
 		if (argv[arg_num][0] != '-')
 			goto get_config_error;
 		char nsym = argv[arg_num][1];
-		if (nsym >= 'a' && nsym <= 'z' && (c_op = KEY_OPERATION[nsym - 'a']))
+		if (nsym >= 'A' && nsym <= 'z' && (c_op = KEY_OPERATION[nsym - 'A']))
 			{
 			if (!rv->ops_cnt % 8)
 				rv->operations = (FOperation *)realloc(rv->operations,sizeof(FOperation) * (rv->ops_cnt / 8 + 1) * 8);
@@ -154,7 +163,7 @@ FHandlerConfig *get_config(int argc, char *argv[],char *errbuf)
 			}
 		switch (nsym)
 			{
-			case 'a': // -a key, set key
+			case 'A': // -A key, set key
 				c_csv_file = NULL;
 				opdata->operation = SO_SetKey;
 				for (opt_num = 2; argv[arg_num][opt_num] != 0; opt_num++)
@@ -163,6 +172,7 @@ FHandlerConfig *get_config(int argc, char *argv[],char *errbuf)
 						{
 						case 'n': opdata->key_op.vmode = VM_Int; break;
 						case 'f': opdata->key_op.vmode = VM_Float; break;
+						case 'd': opdata->key_op.vmode = VM_Double; break;
 						case 'x': opdata->key_op.vmode = VM_Hex; break;
 						case 'e': opdata->key_op.vmode = VM_Empty; break;
 						case 0: opdata->key_op.vmode = VM_String; break;
@@ -181,8 +191,26 @@ FHandlerConfig *get_config(int argc, char *argv[],char *errbuf)
 				if (++arg_num >= argc) goto get_config_error;
 				sing_config_set_base_path(rv->base_config,argv[arg_num++]);
 				continue;
-			case 'c': // -c key, key output
-			case 'e': // -e key, key deletion
+			case 'M': // -M key, key output
+				c_csv_file = NULL;
+				opdata->operation = SO_PrintKey;
+				for (opt_num = 2; argv[arg_num][opt_num] != 0; opt_num++)
+					{
+					switch (argv[arg_num][opt_num])
+						{
+						case 'n': opdata->key_op.vmode = VM_Int; break;
+						case 'f': opdata->key_op.vmode = VM_Float; break;
+						case 'd': opdata->key_op.vmode = VM_Double; break;
+						case 'x': opdata->key_op.vmode = VM_Hex; break;
+						case 0: opdata->key_op.vmode = VM_String; break;
+						default: goto get_config_error;
+						}
+					}
+				if (++arg_num >= argc) goto get_config_error;
+				opdata->key_op.key = argv[arg_num++];
+				continue;
+			case 'E': // -E key, key erasing
+			case 'S': // -S key, key deletion
 				c_csv_file = NULL;
 				opdata->operation = c_op;
 				if (++arg_num >= argc) goto get_config_error;
@@ -287,6 +315,7 @@ FHandlerConfig *get_config(int argc, char *argv[],char *errbuf)
 				if (!opdata) goto get_config_error;
 				opdata->result_file = argv[arg_num++];
 				continue;
+			case 'e': // -e key, keyset removing
 			case 'p': // -p key, diff applying
 			case 's': // -s key, diff applying
 				c_csv_file = &opdata->file_op;

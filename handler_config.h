@@ -40,22 +40,25 @@
 typedef enum {
 	SO_None,		   // noop
 	SO_Dump,		   // -m key
-	SO_PrintKey,	// -c key
+	SO_PrintKey,	// -M key
 	SO_Size,		   // -q key
 	SO_MaxRead,		// noop, read/write boundary
 	SO_Process,		// -p key, default
 	SO_Sub,			// -s key,
-	SO_SetKey,		// -a key
-	SO_DelKey,		// -e key
+	SO_Erase,		// -e key,
+	SO_SetKey,		// -A key
+	SO_DelKey,		// -S key
+	SO_EraseKey,	// -E key
 	SO_Diff,		   // -d key
 	} EOperation;
 	
 typedef enum {
 	VM_String,		// default
-	VM_Int,		   // -p key, default
-	VM_Float,		// -a key
-	VM_Hex,		   // -f key
-	VM_Empty		   // -e key
+	VM_Int,		   // -n option
+	VM_Float,		// -f option
+	VM_Hex,		   // -x option
+	VM_Double,	   // -d option
+	VM_Empty		   // -e option
 	} EValueMode;
 
 #define REMOVE_KEY_FROM_VALS 0x80000000

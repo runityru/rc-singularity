@@ -1,64 +1,123 @@
-RELEASE = -O3
-LOGFILE = -DFILE_LOG="debug.log"
-DEBUG = -g -DMEMORY_CHECK -DLOG_OPERATION -DLOG_MEMORY -DLOG_LOCKS
 COMMON_OPTIONS = -Wall -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE
 LIBS = -lrt -lpthread
-BASE_SET = pipelines.c config.c codec.c index.c cpages.c filebuf.c fileparse.c utils.c locks.c keyhead.c allocator.c rc_singularity.c
-BASE_INCLUDE = defines.h logbin.h pipelines.h config.h codec.h index.h cpages.h filebuf.h fileparse.h utils.h locks.h keyhead.h allocator.h 
 
-.PHONY: all test autotests
+BASE_SET = pipelines.o config.o codec.o index.o cpages.o filebuf.o fileparse.o utils.o locks.o keyhead.o allocator.o rc_singularity.o
+HANDLER_SET = handler_config.o sing_handler.o
+
+LOGFILE = -DFILE_LOG="debug.log"
+DCFLAGS = -g -DMEMORY_CHECK -DLOG_OPERATION -DLOG_MEMORY -DLOG_LOCKS
+DOBJDIR = obj/debug
+DOBJLIBDIR = obj/debug_lib
+DLIBOBJS := $(addprefix $(DOBJLIBDIR)/,$(BASE_SET))
+DHNDLOBJS := $(addprefix $(DOBJDIR)/,$(HANDLER_SET))
+
+RCFLAGS = -O3
+ROBJDIR = obj/release
+ROBJLIBDIR = obj/release_lib
+RLIBOBJS := $(addprefix $(ROBJLIBDIR)/,$(BASE_SET))
+RHNDLOBJS := $(addprefix $(ROBJDIR)/,$(HANDLER_SET))
+
+TCOBJDIR = obj/ctests
+TCOBJS := $(addprefix $(TCOBJDIR)/,$(BASE_SET))
+
+TOBJDIR = obj/tests
+TESTS_SET = memory keyheads index_ops codec_ops locks filebuffers fileparse api_read_calls api_write_calls api_file_calls api_other_calls
+
+TESTS_LIST := $(TESTS_SET:%=tests/%)
+TESTS_OBJS := $(TESTS_SET:%=$(TOBJDIR)/%.o)
+
+TESTS_RUN := $(TESTS_SET:%=t_%)
+
+.PHONY: all debug release autotests test install clean
 
 all: debug release autotests
 
-deb_lib:
-	gcc $(DEBUG) $(COMMON_OPTIONS) $(BASE_SET) -shared -fPIC -o lib/librc_singularity_deb.so $(LIBS)
+debug: debug/sing_handler
 
-rel_lib:
-	gcc $(RELEASE) $(COMMON_OPTIONS) $(BASE_SET) -shared -fPIC -o lib/librc_singularity.so $(LIBS)
+debug/sing_handler: lib/librc_singularity_deb.so $(DHNDLOBJS)
+	gcc $(DHNDLOBJS) -o $@ -Llib $(LIBS) -lrc_singularity_deb -Wl,-rpath='/usr/local/nic/rc-singularity/lib/'
 
-debug: deb_lib
-	gcc $(DEBUG) handler_config.c sing_handler.c -o debug/sing_handler -Llib $(LIBS) -lrc_singularity_deb -Wl,-rpath='/usr/local/nic/rc-singularity/lib/'
+lib/librc_singularity_deb.so: $(DLIBOBJS)
+	gcc $(DLIBOBJS) -shared -o $@ $(LIBS)
 
-release: rel_lib
-	gcc $(RELEASE) handler_config.c sing_handler.c -o bin/sing_handler -Llib $(LIBS) -lrc_singularity -Wl,-rpath='/usr/local/nic/rc-singularity/lib/'
-
-memory_tests:
-	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/memory.c $(BASE_SET) -o tests/memory $(LIBS)
-keyheads_tests:
-	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/keyheads.c $(BASE_SET) -o tests/keyheads $(LIBS)
-index_ops_tests:
-	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/index_ops.c $(BASE_SET) -o tests/index_ops $(LIBS)
-codec_ops_tests:
-	gcc $(DEBUG) $(COMMON_OPTIONS) tests/codec_ops.c $(BASE_SET) -o tests/codec_ops $(LIBS)
-locks_tests:
-	gcc $(DEBUG) $(COMMON_OPTIONS) tests/locks.c $(BASE_SET) -o tests/locks $(LIBS)
-filebuf_tests:
-	gcc $(DEBUG) $(COMMON_OPTIONS) tests/filebuffers.c $(BASE_SET) -o tests/filebuffers $(LIBS)
-fileparse_tests:
-	gcc $(DEBUG) $(COMMON_OPTIONS) tests/fileparse.c $(BASE_SET) -o tests/fileparse $(LIBS)
-api_read_tests:
-	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/api_read_calls.c $(BASE_SET) -o tests/api_read_calls $(LIBS)
-api_write_tests:
-	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/api_write_calls.c $(BASE_SET) -o tests/api_write_calls $(LIBS)
-api_file_tests:
-	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/api_file_calls.c $(BASE_SET) -o tests/api_file_calls $(LIBS)
-api_other_tests:
-	gcc $(DEBUG) $(COMMON_OPTIONS) tests/common.c tests/api_other_calls.c $(BASE_SET) -o tests/api_other_calls $(LIBS)
-
-autotests: memory_tests keyheads_tests index_ops_tests codec_ops_tests locks_tests filebuf_tests fileparse_tests api_read_tests api_write_tests api_file_tests api_other_tests
+$(DOBJDIR)/%.o : %.c | $(DOBJDIR)
+	gcc -c $(DCFLAGS) $(COMMON_OPTIONS) -MMD -MP $< -o $@
 	
-test:
-	./tests/memory
-	./tests/keyheads
-	./tests/index_ops
-	./tests/codec_ops
-	./tests/locks
-	./tests/filebuffers
-	./tests/fileparse
-	./tests/api_read_calls
-	./tests/api_write_calls
-	./tests/api_file_calls
-	./tests/api_other_calls
+$(DOBJLIBDIR)/%.o : %.c | $(DOBJLIBDIR)
+	gcc -c $(DCFLAGS) -fPIC $(COMMON_OPTIONS) -MMD -MP $< -o $@
+	
+-include $(DLIBOBJS:.o=.d)
+-include $(DHNDLOBJS:.o=.d)
+	
+release: bin/sing_handler
+
+bin/sing_handler: lib/librc_singularity.so $(RHNDLOBJS)
+	gcc $(RHNDLOBJS) -o $@ -Llib $(LIBS) -lrc_singularity -Wl,-rpath='/usr/local/nic/rc-singularity/lib/'
+
+lib/librc_singularity.so: $(RLIBOBJS)
+	gcc $(RLIBOBJS) -shared -o $@ $(LIBS)
+
+$(ROBJDIR)/%.o : %.c | $(ROBJDIR)
+	gcc -c $(RCFLAGS) $(COMMON_OPTIONS) -MMD -MP $< -o $@
+	
+$(ROBJLIBDIR)/%.o : %.c | $(ROBJLIBDIR)
+	gcc -c $(RCFLAGS) -fPIC $(COMMON_OPTIONS) -MMD -MP $< -o $@
+	
+-include $(RLIBOBJS:.o=.d)
+-include $(RHNDLOBJS:.o=.d)
+	
+autotests: $(TESTS_LIST)
+
+tests/memory: $(TOBJDIR)/common.o $(TOBJDIR)/memory.o $(TCOBJS) 
+	gcc $(TOBJDIR)/common.o $(TOBJDIR)/memory.o $(TCOBJS) -o $@ $(LIBS)
+	
+tests/keyheads: $(TOBJDIR)/common.o  $(TOBJDIR)/keyheads.o $(TCOBJS) 
+	gcc $(TOBJDIR)/common.o $(TOBJDIR)/keyheads.o $(TCOBJS) -o $@ $(LIBS)
+	
+tests/index_ops: $(TOBJDIR)/common.o  $(TOBJDIR)/index_ops.o $(TCOBJS) 
+	gcc $(TOBJDIR)/common.o $(TOBJDIR)/index_ops.o $(TCOBJS) -o $@ $(LIBS)
+	
+tests/codec_ops:  $(TOBJDIR)/codec_ops.o $(TCOBJS) 
+	gcc $(TOBJDIR)/codec_ops.o $(TCOBJS) -o $@ $(LIBS)
+	
+tests/locks:  $(TOBJDIR)/locks.o $(TCOBJS) 
+	gcc $(TOBJDIR)/locks.o $(TCOBJS) -o $@ $(LIBS)
+	
+tests/filebuffers: $(TOBJDIR)/filebuffers.o $(TCOBJS) 
+	gcc $(TOBJDIR)/filebuffers.o $(TCOBJS) -o $@ $(LIBS)
+	
+tests/fileparse: $(TOBJDIR)/fileparse.o $(TCOBJS) 
+	gcc $(TOBJDIR)/fileparse.o $(TCOBJS) -o $@ $(LIBS)
+	
+tests/api_read_calls: $(TOBJDIR)/common.o $(TOBJDIR)/api_read_calls.o $(TCOBJS) 
+	gcc $(TOBJDIR)/common.o $(TOBJDIR)/api_read_calls.o $(TCOBJS) -o $@ $(LIBS)
+	
+tests/api_write_calls: $(TOBJDIR)/common.o $(TOBJDIR)/api_write_calls.o $(TCOBJS) 
+	gcc $(TOBJDIR)/common.o $(TOBJDIR)/api_write_calls.o $(TCOBJS) -o $@ $(LIBS)
+	
+tests/api_file_calls: $(TOBJDIR)/common.o $(TOBJDIR)/api_file_calls.o $(TCOBJS) 
+	gcc $(TOBJDIR)/common.o $(TOBJDIR)/api_file_calls.o $(TCOBJS) -o $@ $(LIBS)
+	
+tests/api_other_calls: $(TOBJDIR)/common.o $(TOBJDIR)/api_other_calls.o $(TCOBJS) 
+	gcc $(TOBJDIR)/common.o $(TOBJDIR)/api_other_calls.o $(TCOBJS) -o $@ $(LIBS)
+	
+$(TCOBJDIR)/%.o : %.c | $(TCOBJDIR)
+	gcc -c $(DCFLAGS) $(COMMON_OPTIONS) -MMD -MP $< -o $@
+	
+$(TOBJDIR)/%.o : tests/%.c | $(TOBJDIR)
+	gcc -c $(DCFLAGS) $(COMMON_OPTIONS) -MMD -MP $< -o $@
+
+-include $(TCOBJS:.o=.d)
+-include $(TESTS_OBJS:.o=.d)
+-include $(TOBJDIR)/common.d
+
+$(DOBJDIR) $(DOBJLIBDIR) $(ROBJDIR) $(ROBJLIBDIR) $(TCOBJDIR) $(TOBJDIR):
+	mkdir -p $@
+
+test:	$(TESTS_RUN)
+
+t_%:
+	$(patsubst t_%,./tests/%,$@)
 
 install:
 	mkdir -p /var/lib/rc-singularity
@@ -79,4 +138,5 @@ clean:
 	rm -f bin/*
 	rm -f debug/*
 	rm -f lib/*
-	rm -f tests/memory tests/keyheads tests/index_ops tests/codec_ops tests/locks tests/api_read_calls tests/api_write_calls tests/api_file_calls tests/api_other_calls
+	rm -rf obj/*
+	rm -f $(patsubst t_%,./tests/%,$(TESTS_RUN))

@@ -43,6 +43,7 @@ int main(void)
 	FTransformData tdata;
 	tdata.value_source = NULL;
 	tdata.value_size = 0;
+	tdata.use_phantom = 0;
 
 	unsigned i;
 	int rv = 0;

@@ -94,13 +94,19 @@ void lck_init_locks(FSingSet *index);
 void lck_deinit_locks(FSingSet *index);
 
 // Автоблокировка записи на уровне процесса
-int lck_processLock(FSingSet *index);
+int lck_processLock(FSingSet *kvset);
 
 // Снятие блокировки записи на уровне процесса
-int lck_processUnlock(FSingSet *index,int op_result,int autorevert);
+int lck_processUnlock(FSingSet *kvset,int op_result,int autorevert);
 
 // Ручная блокировка записи на уровне процесса
-int lck_manualLock(FSingSet *index);
+int lck_manualLock(FSingSet *kvset);
+
+int lck_manualTry(FSingSet *kvset);
+
+int lck_manualPresent(FSingSet *kvset);
+
+void lck_protectWait(FSingSet *kvset);
 
 // Снятие блокировки записи на уровне процесса
 int lck_manualUnlock(FSingSet *index,int commit,uint32_t *saved);

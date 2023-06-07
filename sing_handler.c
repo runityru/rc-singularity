@@ -32,6 +32,96 @@ static off_t file_size(char *filename)
 	return st.st_size;
 	}
 
+static void *_cb_allocator(unsigned size)
+	{ return malloc(size); }
+
+static int key_set(FSingSet *kvset,FKeyOperation *key_op)
+	{
+	switch (key_op->vmode)
+		{
+		case VM_Int: return sing_set_key32i(kvset,key_op->key,atoi(key_op->value));
+		case VM_Float: return sing_set_key32f(kvset,key_op->key,strtof(key_op->value,NULL));
+		case VM_Double: return sing_set_key64d(kvset,key_op->key,atof(key_op->value));
+		case VM_Empty: return sing_set_key(kvset,key_op->key,NULL,0);
+		case VM_Hex:
+			{
+			char *value = key_op->value;
+			if (value[0] == '0' && (value[1] & 0xDF) == 'X')
+				value += 2;
+			int len = strlen(value);
+			unsigned char *result = (unsigned char *)malloc((len + 1) / 2);
+			if (!result)
+				return SING_ERROR_NO_MEMORY;
+			unsigned pos = 0;
+			if (len & 1)
+				{
+				len--;
+				sscanf(value, "%1hhx", result);
+				value++;
+				pos = 1;
+				}
+			for(;len;len -= 2, pos++, value += 2)
+				sscanf(value, "%2hhx", &result[pos]);
+			int res = sing_set_key(kvset,key_op->key,result,pos);
+			free(result);
+			return res;
+			}
+		default:	return sing_set_key(kvset,key_op->key,key_op->value,strlen(key_op->value));
+		}
+	}
+
+static int key_output(FSingSet *kvset,FKeyOperation *key_op)
+	{
+	int res;
+	switch (key_op->vmode)
+		{
+		case VM_Int:
+			{
+			int val;
+			if (!(res = sing_get_value32i(kvset,key_op->key,&val)))
+				printf("%s: %d\n",key_op->key,val);
+			return res;
+			}
+		case VM_Float:
+			{
+			float val;
+			if (!(res = sing_get_value32f(kvset,key_op->key,&val)))
+				printf("%s: %f\n",key_op->key,val);
+			return res;
+			}
+		case VM_Double:
+			{
+			double val;
+			if (!(res = sing_get_value64d(kvset,key_op->key,&val)))
+				printf("%s: %f\n",key_op->key,val);
+			return res;
+			}
+		case VM_Hex:
+			{
+			unsigned char *value = NULL;
+			unsigned vsize,i;
+			if (!(res = sing_get_value_cb(kvset,key_op->key,_cb_allocator,(void **)&value,&vsize)))
+				{
+				printf("%s: ",key_op->key);
+				for(i = 0; i < vsize; i++)
+					printf("%02X", value[i]);
+				printf("\n");
+				}
+			return res;
+			}
+		default:
+			{
+			char *value = NULL;
+			unsigned vsize;
+			if (!(res = sing_get_value_cb(kvset,key_op->key,_cb_allocator,(void **)&value,&vsize)))
+				printf("%s: %.*s\n",key_op->key,vsize,value);
+			if (value)
+				free(value);
+			}
+		}
+	return res;
+	}
+
 int main(int argc, char *argv[])
 	{
 	struct timespec ts,ts2;
@@ -102,10 +192,11 @@ int main(int argc, char *argv[])
 			{
 			case SO_Process: res = sing_add_file(shmIndex,&opdata->file_op); break;
 			case SO_Sub: res = sing_sub_file(shmIndex,&opdata->file_op); break;
-			case SO_SetKey:
-			case SO_DelKey:
-			case SO_PrintKey:
-				break;
+			case SO_Erase: res = sing_remove_file(shmIndex,&opdata->file_op); break;
+			case SO_SetKey: res = key_set(shmIndex,&opdata->key_op); break;
+			case SO_DelKey: res = sing_del_key(shmIndex,opdata->key_op.key); break;
+			case SO_EraseKey: res = sing_del_full(shmIndex,opdata->key_op.key); break;
+			case SO_PrintKey: res = key_output(shmIndex,&opdata->key_op); break;
 			case SO_Size:
 				printf ("%d\n",sing_total_count(shmIndex));
 				break;
@@ -115,7 +206,7 @@ int main(int argc, char *argv[])
 				if (opdata->flags & OF_FILEREPLACE)
 					source_replacement = opdata->file_op.filename;
 				break;
-			case SO_Dump: res = sing_dump(shmIndex,opdata->result_file,opdata->flags); break;
+			case SO_Dump: res = sing_dump(shmIndex,opdata->result_file); break;
 			case SO_MaxRead:
 			case SO_None:
 				break;
@@ -135,7 +226,7 @@ int main(int argc, char *argv[])
 	
 	if ((config->flags & CF_CHECK) && sing_check_set(shmIndex))
 		{ 
-		fprintf (stderr,"%s\n",sing_config_get_error(config->base_config)); 
+		fprintf (stderr,"%s\n",sing_get_error(shmIndex)); 
 		if (w_op && (lm == SING_LM_FAST || lm == SING_LM_NONE))
 			sing_revert(shmIndex);
 		goto exit; 
@@ -157,7 +248,7 @@ exit:
 		}
 	
 	if (!rv && source_replacement)
-		rename(config->reset_data.filename,source_replacement);
+		rename(source_replacement,config->reset_data.filename);
 
 	if (shmIndex)
 		{
