@@ -393,27 +393,50 @@ volatile int lockDone = 0;
 
 void *unload_thread(void *param)
 	{
-	FSingSet *index = sing_link_set((char *)param,0,NULL);
-	sing_lock_W(index);
+	FSingSet *index = sing_link_set((char *)param,SING_CF_KEEP_LOCK | SING_CF_UNLOAD_ON_CLOSE,NULL);
+	if (!index)
+		return (void *)1;
 	__atomic_store_n(&lockDone,1,__ATOMIC_RELEASE);
 	sleep(1);
-	sing_unload_set(index);
-	return (void*) 0;
+	sing_unlink_set(index);
+	return (void*)0;
 	}
 
 int locks_test_lm_simple_relink(void)
 	{
-	int *trv;
+	int trv;
 	pthread_t unl_thread;
-	FSingSet *index = sing_create_set("locks_test_simple_relink",NULL,0,0,LM_SIMPLE,NULL);
+	FSingSet *index = sing_create_set("locks_test_simple_relink",NULL,0,SING_CF_KEEP_LOCK | SING_CF_UNLOAD_ON_CLOSE,LM_SIMPLE,NULL);
+	if (!index)
+		return printf ("Test %s index creation failed\n","locks_test_lm_simple_relink"),1;
+	sing_unlock_commit(index,NULL);
 	pthread_create(&unl_thread, NULL, unload_thread, "locks_test_simple_relink");
 	while(!__atomic_load_n(&lockDone,__ATOMIC_ACQUIRE))
 		_mm_pause();
-	int res = sing_lock_W(index);
+	int res = 0; 
 	pthread_join(unl_thread,(void**)&trv);
-	sing_delete_set(index);
+	if (trv)
+		return printf ("Test %s second thread step 1 failed: %d\n","locks_test_lm_simple_relink",trv),1;
+		
+	res = sing_unload_set(index);
 	if (res) 
-		printf ("Test %s failed: %d\n","locks_test_lm_simple_relink",res);
+		return printf ("Test %s step 1 failed: %d\n","locks_test_lm_simple_relink",res),res;
+	
+	lockDone = 0;
+	index = sing_link_set("locks_test_simple_relink",SING_CF_KEEP_LOCK | SING_CF_UNLOAD_ON_CLOSE,NULL);
+	if (!index)
+		return printf ("Test %s index creation failed\n","locks_test_lm_simple_relink"),1;
+	sing_unlock_commit(index,NULL);
+	pthread_create(&unl_thread, NULL, unload_thread, "locks_test_simple_relink");
+	while(!__atomic_load_n(&lockDone,__ATOMIC_ACQUIRE))
+		_mm_pause();
+	pthread_join(unl_thread,(void**)&trv);
+	if (trv)
+		return printf ("Test %s second thread step 2 failed: %d\n","locks_test_lm_simple_relink",trv),1;
+	
+	res = sing_delete_set(index);
+	if (res) 
+		printf ("Test %s step 2 failed: %d\n","locks_test_lm_simple_relink",res);
 	return res;
 	}
 

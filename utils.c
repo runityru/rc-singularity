@@ -145,3 +145,11 @@ off_t file_size(char *filename)
 		return -1;
 	return st.st_size;
 	}
+	
+int file_link(const char *oldname, const char *newname)
+	{
+	int res = unlink(newname);
+	if (res && errno != ENOENT)
+		return res;
+	return link(oldname,newname);
+	}

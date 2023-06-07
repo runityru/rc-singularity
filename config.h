@@ -28,6 +28,7 @@ typedef struct FSingCSVFileTg
 #define CF_UNLOAD_ON_CLOSE 0x2000
 
 #define CF_MASK 0xFF00
+#define CF_ERROR_MSG_LEN 512
 
 typedef struct FSingConfigTg
 	{
@@ -35,7 +36,7 @@ typedef struct FSingConfigTg
 	char padding[3];
 	unsigned connect_flags;
 	char *base_location; 		// base persistent files location
-	char last_error[512];
+	char last_error[CF_ERROR_MSG_LEN];
 	} FSingConfig;
 
 void cnf_set_error(FSingConfig *config,const char *message);

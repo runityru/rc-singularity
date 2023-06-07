@@ -3,50 +3,65 @@ Major - data store format
 Minor - incompatible API changes
 Release - fixes, performance improvement, API additions
 
+1.1.22 - Some documentation fixes.
+
+1.1.21 - Made more faster makefile. Fixed CF_FULL_LOAD and CF_READER flags work together.
+
+1.1.18 -	Fixed diagnostic message in sing_handler
+
+1.1.18 -	Relink set with differ persistence mode fix.
+			
+1.1.17 - Fixed self lock on relink
+			
+1.1.16 - Fixed pages reusing.
+
+1.1.15 - Version numbering synced with internal repo. 
+			Fixed bugs in value_equal calls.
+
 0.9.14 - Fixed minor bug with filenames
 
 0.9.13 - sets try relink from disk copy on memory share deletion now. Fixed bug with self locking in sing_dump. Fixed bug with changes mask in index. 
-        Fixed uninitialized mutex when restore from disk copy
+         Fixed uninitialized mutex when restore from disk copy
 
 0.9.12 - Unload and deletion now work under exclusive lock, if allowed by lock mode. Unlink remove exclusive lock and revert to disk copy such lock if exists.
-        Added flags SING_CF_UNLOAD_ON_CLOSE and SING_CF_KEEP_LOCK. Documentation fixes.
+         Added flags SING_CF_UNLOAD_ON_CLOSE and SING_CF_KEEP_LOCK. Documentation fixes.
 
 0.9.11 - Fixed bug with lock removing in multikeys reads. 
-        Fixed work with phantoms in most api data calls. Added set of calls for working with phantoms. Added many tests for phantom keys and values.
-        Added work with single keys in sing_handler. Documentation fixes.
+         Fixed work with phantoms in most api data calls. Added set of calls for working with phantoms. Added many tests for phantom keys and values.
+         Added work with single keys in sing_handler. Documentation fixes.
 
 0.9.10 - Fixed work with phantom values. Key now can containt both phantom and normal values, phantom stored in extra_bytes. In this case
-        both values has phantom flag setted. Deleted key with no actual value still marked with diff_mark. This allow concatenation of
-        diffs without overwriting changes. Flag use_phantom in tdata allow overwrite phantom behavior and perform normal deleting or replacing
-        phantom keys
-        Fixed bug in get_values_simple. Tests updated.
-        Fixed bug in sing_handler in diff with replace operation
+         both values has phantom flag setted. Deleted key with no actual value still marked with diff_mark. This allow concatenation of
+         diffs without overwriting changes. Flag use_phantom in tdata allow overwrite phantom behavior and perform normal deleting or replacing
+         phantom keys
+         Fixed bug in get_values_simple. Tests updated.
+         Fixed bug in sing_handler in diff with replace operation
 
-0.9.9 - Fixed issues with incosistent reading and writing during idx_revert. 
-        SING_LM_NONE now has no write locks at all, but SING_LM_FAST has normal write lock. sing_lockRW deleted, because it is unsafe. 
-        Documentation fixed.
-        idx_create no longer damage existing set, and has normal rollback in case of failure.
+0.9.9 -  Fixed issues with incosistent reading and writing during idx_revert. 
+         SING_LM_NONE now has no write locks at all, but SING_LM_FAST has normal write lock. sing_lockRW deleted, because it is unsafe. 
+         Documentation fixed.
+         idx_create no longer damage existing set, and has normal rollback in case of failure.
 
-0.9.8 - pipelines separated from file parsing. Added file parsing tests. Added lost multikey read calls and multikey write calls.
-        Added multikey write calls tests. Some api and documentation fixes
+0.9.8 -  pipelines separated from file parsing. Added file parsing tests. Added lost multikey read calls and multikey write calls.
+         Added multikey write calls tests. Some api and documentation fixes
 
-0.9.7 - fixed bug with log based value size index, and related test. Fixed bug in locks test and in idx_key_set call.
+0.9.7 -  fixed bug with log based value size index, and related test. Fixed bug in locks test and in idx_key_set call.
 
-0.9.6 - sing_intersect_file and sing_intersect_replace_file no more generate output file, data can be dumped later if needed.
-        sing_dump is now safe for concurent deletion. sing_iterate is write call, but can work in SING_LM_READ_ONLY mode without modifications
-        Api and documentation fixes.
+0.9.6 -  sing_intersect_file and sing_intersect_replace_file no more generate output file, data can be dumped later if needed.
+         sing_dump is now safe for concurent deletion. sing_iterate is write call, but can work in SING_LM_READ_ONLY mode without modifications
+         Api and documentation fixes.
 
-0.9.5 - sing_dump is a safe reader call now. Reworked filebuffer.c. API tests splitted to different files. Added tests for read and write file buffers. 
-        Big structures moved from stack to heap allocation. Keeped reader locks now is keeped even in case of pending write (with switched mask).
+0.9.5 -  sing_dump is a safe reader call now. Reworked filebuffer.c. API tests splitted to different files. Added tests for read and write file buffers. 
+         Big structures moved from stack to heap allocation. Keeped reader locks now is keeped even in case of pending write (with switched mask).
 
-0.9.4 - fixed improper use of second thread for file parsing in diff in sing_handler
+0.9.4 -  fixed improper use of second thread for file parsing in diff in sing_handler
 
-0.9.3 - fixed bug in counters based diff. Fixed bug in lck_processUnlock. Api and documentation fixes 
+0.9.3 -  fixed bug in counters based diff. Fixed bug in lck_processUnlock. Api and documentation fixes 
 
-0.9.2 - fixed name of flag SING_CF_READER. Fixed bug in file buffers initialization. 
+0.9.2 -  fixed name of flag SING_CF_READER. Fixed bug in file buffers initialization. 
 
-0.9.1 - added some api tests, minor api and documentation fixes. Autorevert in LM_SIMPLE now works for comples API calls only, 
-        it should be nothing to do in simple calls
+0.9.1 -  added some api tests, minor api and documentation fixes. Autorevert in LM_SIMPLE now works for comples API calls only, 
+         it should be nothing to do in simple calls
 
-0.9.0 - code was getted from internal repository with some adaptations, may be fixes in the code or documentation are needed. 
-        Documentation is a project for the 1.0.0 release version, and may be different from real API. 
+0.9.0 -  code was getted from internal repository with some adaptations, may be fixes in the code or documentation are needed. 
+         Documentation is a project for the 1.0.0 release version, and may be different from real API. 

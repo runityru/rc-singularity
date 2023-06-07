@@ -252,9 +252,9 @@ FSingSet *sing_create_set(const char *setname,const FSingCSVFile *csv_file,unsig
 		{
 		FFileParseParam fpp = {csv_file,sourceRbs};
 		if (sourceRbs && pl_pipeline(index,fp_init,fp_get_next,&fpp,(index->head->use_flags & UF_PHANTOM_KEYS) ? phantom_process : std_process,0,NULL,keys_count))
-			sing_delete_set(index),index = NULL;
+			strncpy(used_config->last_error,index->last_error,CF_ERROR_MSG_LEN - 1),sing_delete_set(index),index = NULL;
 		else if (idx_creation_done(index,lock_mode))
-			sing_delete_set(index),index = NULL;
+			strncpy(used_config->last_error,index->last_error,CF_ERROR_MSG_LEN - 1),sing_delete_set(index),index = NULL;
 		}
 	fbr_finish(sourceRbs);
 	if (!config)

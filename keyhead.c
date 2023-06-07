@@ -12,6 +12,15 @@
 #include "cpages.h"
 #include "utils.h"
 
+void _mark_kh_hole_empty(FSingSet *index,FKeyHeadGeneral *kh,unsigned size)
+	{
+	if (size <= 1)
+		return;
+	unsigned i;
+	for (i = 0; i < size; i++)
+		kh[i].whole = 0LL;
+	}
+
 void _index_kh_hole(FSingSet *index,FKeyHeadGeneral *kh,element_type khref,unsigned size)
 	{
 	FSetHead *head = index->head;
@@ -189,6 +198,7 @@ kh_alloc_one_hsize_found:
 	if ((*ref = _kh_alloc_from_zone(index)) == KH_ZERO_REF) return NULL;
 	// Индексируем остаток
 	kh_block = (FKeyHeadGeneral *)pagesPointer(index,*ref);
+	_mark_kh_hole_empty(index,&kh_block[1],KEYHEADS_IN_BLOCK - 1);
 	_index_kh_hole(index,&kh_block[1],*ref + KEY_HEAD_SIZE,KEYHEADS_IN_BLOCK - 1);
 	return kh_block;
 	}
@@ -222,6 +232,7 @@ FKeyHeadGeneral *kh_alloc_block(FSingSet *index,unsigned size,element_type *ref)
 		}
 	if ((*ref = _kh_alloc_from_zone(index)) == KH_ZERO_REF) return NULL;
 	kh_block = (FKeyHeadGeneral *)pagesPointer(index,*ref);
+	_mark_kh_hole_empty(index,&kh_block[size],KEYHEADS_IN_BLOCK - size);
 	_index_kh_hole(index,&kh_block[size],*ref + size * KEY_HEAD_SIZE,KEYHEADS_IN_BLOCK - size);
 	return kh_block;
 	}

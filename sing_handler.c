@@ -226,7 +226,7 @@ int main(int argc, char *argv[])
 	
 	if ((config->flags & CF_CHECK) && sing_check_set(shmIndex))
 		{ 
-		fprintf (stderr,"%s\n",sing_config_get_error(config->base_config)); 
+		fprintf (stderr,"%s\n",sing_get_error(shmIndex)); 
 		if (w_op && (lm == SING_LM_FAST || lm == SING_LM_NONE))
 			sing_revert(shmIndex);
 		goto exit; 

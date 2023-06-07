@@ -152,12 +152,13 @@ typedef struct FSingSetTg
 
 	FFileNames filenames;
 
-	char last_error[512];
+	char last_error[CF_ERROR_MSG_LEN];
 
 	unsigned hashtable_size; 
 	unsigned conn_flags;
 	unsigned read_only; // Connection is read only
-	unsigned is_private; // Set is in process memory
+	unsigned short is_private; // Set is in process memory
+	unsigned short is_persistent; // Set is in process memory
 
 	struct FSingSetTg *old_data; // Old set data, we should keep during recreation
 
