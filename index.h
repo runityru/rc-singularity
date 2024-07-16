@@ -15,15 +15,6 @@
 #include "allocator.h"
 #include "locks.h"
 
-// MAX_KEY_SOURCE - макс. размер исходного ключа
-// MAX_KEY_SIZE - макс. размер хвоста ключа
-// MAX_VALUE_SIZE - макс. размер данных
-
-// Страница должна быть больше или равна макс. размеру данных
-#if (PAGE_SIZE <= MAX_KEY_SIZE) || (PAGE_SIZE <= MAX_VALUE_SIZE)
-	#error Page size is too small
-#endif
-
 #include "codec.h"
 
 // Служебная структура для движения по цепочке в хештаблице
@@ -35,7 +26,7 @@ typedef struct
 	unsigned link_num; 	// Номер ссылки на продолжение (0 или 1)
 	} FHashTableChain;
 
-typedef struct
+typedef struct FHeadSizesTg
 	{
 	element_type mem_file_size;		// Размер шары в памяти - константное значение, не меняется для созданного индекса. Выровнено по дисковой странице
 	element_type disk_file_size;	// Размер файла на диске - константное значение, не меняется для созданного индекса. Выровнено по дисковой странице
@@ -83,9 +74,10 @@ typedef struct FSetHeadTg
 	unsigned use_flags;					// Flags, defined at creation (SF_...)
 	unsigned lock_mode;					// 
 	unsigned use_spin;					// Use spinlocks (mode is LM_PROTECTED or LM_FAST)
-	FBadStates bad_states;				// Состояния, препятствующие операции записи
 	unsigned delimiter;					// Разделитель столбцов в значениях (char)
-	CACHE_LINE_PADDING(padding1,sizeof(FHeadSizes) + sizeof(FBadStates) + sizeof(unsigned) * 5);
+	FBadStates bad_states;				// Состояния, препятствующие операции записи
+	char codec[8];						   // Название кодека
+	CACHE_LINE_PADDING(padding1,sizeof(FHeadSizes) + sizeof(FBadStates) + sizeof(unsigned) * 6 + sizeof(char) * 8);
 
 	// Second cache line - rare changed data
 	unsigned state_flags;				// Флаги состояния (HF_...)
@@ -143,7 +135,7 @@ typedef struct FFileNamesTg {
 
 typedef struct FSingSetTg
 	{
-	FProtectLock protect_lock; // This is whole chache line for protect mode locks. Other data are semiconstant
+	FProtectLock protect_lock; // This is whole cache line for protect mode locks. Other data are semiconstant
 
 	int index_fd; 		// Шара индекса
 	int pages_fd; 		// Шара страниц
@@ -151,6 +143,11 @@ typedef struct FSingSetTg
 	int disk_pages_fd; 	// Файл страниц на диске
 
 	FFileNames filenames;
+
+	CTransformKey transform;
+	CEncodeKey encode;
+	CDecodeKey decode;
+	void *codec_handle;
 
 	char last_error[CF_ERROR_MSG_LEN];
 
@@ -177,7 +174,7 @@ typedef struct FSingSetTg
 void idx_set_error(FSingSet *index,const char *message);
 void idx_set_formatted_error(FSingSet *index,const char *format,...);
 
-FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,FSingConfig *config);
+FSingSet *idx_create_set(const char *setname,const char *codec,unsigned keys_count,unsigned flags,FSingConfig *config);
 int idx_creation_done(FSingSet *index,unsigned lock_mode);
 int idx_relink_set(FSingSet *index);
 

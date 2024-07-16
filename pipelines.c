@@ -213,7 +213,7 @@ int pl_pipeline2(FSingSet *index,CInitSource init_cb,CGetFromSource get_cb, void
 	while (get_cb(index,data_source,tdata,invert))
 		{
 		tdata->hash = index->hashtable_size;
-		cd_encode(tdata);
+		index->encode(tdata);
 
 		if (++wchain->ctdata == TWO_CORE_CHAIN_SIZE)
 			break;
@@ -228,7 +228,7 @@ int pl_pipeline2(FSingSet *index,CInitSource init_cb,CGetFromSource get_cb, void
 	while (get_cb(index,data_source,tdata,invert))
 		{
 		tdata->hash = index->hashtable_size;
-		cd_encode(tdata);
+		index->encode(tdata);
 
 		if (++wchain->ctdata == TWO_CORE_CHAIN_SIZE)
 			{
@@ -289,7 +289,7 @@ int pl_pipeline1(FSingSet *index,CInitSource init_cb,CGetFromSource get_cb, void
 	while (get_cb(index,data_source,tdatas[0],invert))
 		{
 		tdatas[0]->hash = index->hashtable_size;
-		cd_encode(tdatas[0]);
+		index->encode(tdatas[0]);
 
 		if (pchain_step(index,tdatas,pcb,cb_param))
 			return free(values),1;

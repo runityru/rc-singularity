@@ -73,7 +73,7 @@ _get_next_pair_repeat:
 			goto _get_next_pair_to_eol;
 		}
 	key_start = fbr_get_key_ref(rbs);
-	if (!(keylen = cd_transform(key_start,MAX_KEY_SOURCE,tdata)))
+	if (!(keylen = index->transform(key_start,MAX_KEY_SOURCE,tdata)))
 		goto _get_next_pair_error;
 	if(fbr_shift_pos(rbs,keylen)) 
 		return 1;

@@ -771,7 +771,7 @@ int check_general_holes_chains(FSingSet *index,FCheckData *check_data)
 	FHoleHeader *hheader;
 	FHoleFooter *hfooter;
 	check_data->busy_general ++; // Занятый элемент по индексу 0
-	for (i = MIN_HOLE_SIZE; i < HOLESIZE_CNT; i++)
+	for (i = MIN_HOLE_SIZE; i <= HOLESIZE_CNT; i++)
 		{
 		unsigned hs_idx = i - 1;
 		element_type total_free = 0;

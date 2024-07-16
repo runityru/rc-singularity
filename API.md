@@ -72,16 +72,17 @@ void sing_delete_config(FSingConfig *config)
 переподключиться, и в случае неудачи (дисковой копии нет или удалена), вернут ошибку SING_ERROR_CONNECTION_LOST. Для переподключения будут использованы те-же флаги SING_CF_.., 
 что и при имеющемся подключении.   
 Несколько одновременных подключений к одному и тому-же набору в одном потоке вызывает неопределенное поведение. Несколько подключений в разных потоках одного процесса допустимо, 
-тогда они рассматриваются библиотекой как разные процессы. Для многопоточных процессов оптимально использовать одно подключение, разделенное между потоками. 
+тогда они рассматриваются библиотекой как разные процессы. 
 
 ### sing_create_set
 ``` c
-FSingSet *sing_create_set(const char *setname,const FSingCSVFile *csv_file,unsigned keys_count,unsigned flags,unsigned lock_mode,FSingConfig *config)
+FSingSet *sing_create_set(const char *setname,const char *codec,const FSingCSVFile *csv_file,unsigned keys_count,unsigned flags,unsigned lock_mode,FSingConfig *config)
 ```
 создает новый kv-набор данных.  
 **Параметры:**  
 **_setname_** - имя набора для разделенного доступа. Если не задано (NULL), набор недоступен для других процессов (приватный набор данных). Если задано, набор доступен для 
 локальных процессов на машине под этим именем (разделяемый набор данных).  
+**_codec_** - имя используемого кодека. NULL - используется встроенный кодек [A-Z0-9-.]  
 **_csv_file_** - описание csv файла с данными, используемыми для инициализации набора. См. работа с файлами. Может быть NULL, в этом случае набор создается пустым.  
 **_keys_count_** - планируемое количество ключей. Если указано 0 и задан csv файл, число ключей будет примерно определено по его содержанию. Если указано меньше 512 или 0 
 и csv-файл не задан, таблица будет иметь место для 512 ключей.  
@@ -188,15 +189,15 @@ sing_lock_W накладывает эксклюзивную блокировку
 синхронизации с диском). Выполняет группировку операций между накладыванием и снятием блокировки в одну транзакцию, которая затем может быть сохранена на 
 диск или откачена. В SING_LM_PROTECTED вызов является обязательным для доступа тредов этого процесса к операциям записи (все операции записи ожидают получения эксклюзивной 
 блокировки одним из тредов) и не синхронизирует треды между собой. В SING_LM_FAST вызов синхронизирует и треды и процессы. В SING_LM_NONE вызов возвращает ошибку. 
-См. [Режимы блокировок](https://gitlab.com/rucenter/rc-singularity/-/wikis/%D0%A0%D0%B5%D0%B6%D0%B8%D0%BC%D1%8B-%D0%B1%D0%BB%D0%BE%D0%BA%D0%B8%D1%80%D0%BE%D0%B2%D0%BE%D0%BA) 
-sing_try_lock_W не ожидает снятия другой эксклюзивной блокировки, а возвращает SING_RESULT_LOCKED  
+См. [Режимы блокировок](https://gitlab.com/rucenter/rc-singularity/-/wikis/%D0%A0%D0%B5%D0%B6%D0%B8%D0%BC%D1%8B-%D0%B1%D0%BB%D0%BE%D0%BA%D0%B8%D1%80%D0%BE%D0%B2%D0%BE%D0%BA)  
+sing_try_lock_W не ожидает снятия чужой эксклюзивной блокировки, а возвращает SING_RESULT_LOCKED  
 **Параметры:**  
 **_kvset_** - подключенный набор данных.  
 **Возвращаемые значения:**  
 0 - успех  
 SING_RESULT_LOCKED - возвращает sing_try_lock_W, если набор заблокирован другим процессом/тредом.  
 SING_ERROR_DATA_CORRUPTED - обнаружен сбой, дисковой копии нет или откат к ней выполнить не удалось  
-SING_ERROR_IMPOSSIBLE_OPERATION - набор или подключение только для чтения, либо попытка выполнить повторную блокировку, либо sing_lock_W в режиме SING_LM_NONE
+SING_ERROR_IMPOSSIBLE_OPERATION - набор или подключение только для чтения, либо попытка выполнить повторную блокировку, либо sing_lock_W в режиме SING_LM_NONE  
 SING_ERROR_CONNECTION_LOST - набор удален  
 SING_ERROR_SYNC_FAILED - не удается завершить синхронизацию с диском после предыдущей операции  
 
@@ -378,7 +379,7 @@ int sing_diff_replace_file(FSingSet *kvset,const FSingCSVFile *csv_file,const ch
 sing_diff_file сравнивает содержание набора с csv файлом и выводит разницу. Со знаком минус выводятся ключи и значения, которые есть в наборе но нет в файле, 
 со знаком плюс - которые есть в файле но нет в наборе. Если данные отличаются значением - будут выведены две строки - с "!" и "=".  
 sing_diff_replace_file аналогична sing_diff_file но заменяет содержимое набора на содержимое файла.  
-Вызовы недоступны для наборов с фантомными ключами. 
+Вызовы недоступны для наборов с фантомными ключами.  
 **Параметры:**  
 **_kvset_** - подключенный набор данных.  
 **_csv_file_** - имя и формат csv файла.  
@@ -389,7 +390,7 @@ SING_ERROR_NO_MEMORY - не удалось выделить память для 
 SING_ERROR_NO_SET_MEMORY - не удается выделить страницу для новых данных. Эта ошибка может возникнуть в процессе загрузки недостающих данных из дисковой копии.  
 SING_ERROR_FILE_NOT_FOUND - не удается открыть CSV файл для чтения  
 SING_ERROR_IMPOSSIBLE_OPERATION - набор с фантомными ключами  
-SING_ERROR_OUTPUT_NOT_FOUND - не удается файл outfile для записи  
+SING_ERROR_OUTPUT_NOT_FOUND - не удается открыть файл outfile для записи  
 SING_ERROR_CONNECTION_LOST - набор удален 
 
 ### sing_intersect_file, sing_intersect_replace_file
@@ -409,7 +410,7 @@ SING_ERROR_NO_MEMORY - не удалось выделить память для 
 SING_ERROR_NO_SET_MEMORY - не удается выделить страницу для новых данных.  
 SING_ERROR_FILE_NOT_FOUND - не удается открыть CSV файл для чтения  
 SING_ERROR_IMPOSSIBLE_OPERATION - набор с фантомными ключами  
-SING_ERROR_OUTPUT_NOT_FOUND - не удается файл outfile для записи  
+SING_ERROR_OUTPUT_NOT_FOUND - не удается открыть файл outfile для записи  
 SING_ERROR_CONNECTION_LOST - набор удален  
 
 ### sing_dump
@@ -420,7 +421,7 @@ int sing_dump(FSingSet *kvset,const char *outfile)
 **Параметры:**  
 **_kvset_** - подключенный набор данных.  
 **_outfile_** - файл для сохранения результата сравнения (если NULL - будет выведен в STDOUT) 
-Набор с фантомными ключами выводится в diff формате (см. [Работа с файлами](#работа-с-файлами)). 
+Набор с фантомными ключами выводится в diff формате (см. [Работа с файлами](#работа-с-файлами)).  
 **Возвращаемые значения:**  
 0 - успех  
 SING_ERROR_NO_SET_MEMORY - не удается выделить страницу для новых данных. Эта ошибка может возникнуть в процессе загрузки недостающих данных из дисковой копии.  
@@ -454,7 +455,7 @@ typedef void *(* CSingValueAllocator)(unsigned size);
 int sing_get_value_cb(FSingSet kvset,const char *key,CSingValueAllocator vacb,void **value,unsigned *vsize)
 int sing_get_value_cb_n(FSingSet kvset,const char *key,unsigned ksize,CSingValueAllocator vacb,void **value,unsigned *vsize)
 ```
-находит ключ и размер его значения, вызывает коллбек выделения памяти, копирует значение в выделенную память, сохраняет указатель на нее в \*value и размер в \*vsize. 
+находит ключ и размер его значения, вызывает коллбек выделения памяти, копирует значение в выделенную память, сохраняет указатель на нее в \*value и размер в \*vsize.  
 **Параметры:**  
 **_kvset_** - подключенный набор данных.  
 **_key_** - имя ключа  
@@ -652,7 +653,7 @@ SING_ERROR_CONNECTION_LOST - набор удален. В этом случае \
 int sing_key_present(FSingSet *kvset,const char *key)
 int sing_key_present_n(FSingSet *kvset,const char *key,unsigned ksize)
 ```
-если ключ найден в наборе, возвращает 1, иначе 0.  
+если ключ найден в наборе и не фантомный, возвращает 0.  
 **Параметры:**  
 **_kvset_** - подключенный набор данных.  
 **_key_** - имя ключа  
@@ -668,7 +669,7 @@ SING_ERROR_CONNECTION_LOST - набор удален
 int sing_phantom_present(FSingSet *kvset,const char *key)
 int sing_phantom_present_n(FSingSet *kvset,const char *key,unsigned ksize)
 ```
-если ключ найден в наборе, возвращает 1, иначе 0.  
+если ключ найден в наборе и фантомный, или имеет фантомное значение, возвращает 0.  
 **Параметры:**  
 **_kvset_** - подключенный набор данных.  
 **_key_** - имя ключа  
@@ -963,7 +964,7 @@ int sing_del_key_n(FSingSet *kvset,const char *key,unsigned ksize)
 **_ksize_** - длина имени ключа  
 **Возвращаемые значения:**  
 0 - ключ удален  
-SING_RESULT_KEY_NOT_FOUND - ключ не найден (или фантомный для набора с фантомами) 
+SING_RESULT_KEY_NOT_FOUND - ключ не найден (или фантомный для набора с фантомами)  
 SING_RESULT_IMPOSSIBLE_KEY - невозможный для используемого кодека ключ  
 SING_ERROR_NO_SET_MEMORY - не удается выделить страницу для новых данных. Ошибка может возникнуть при загрузке данных из дисковой копии.  
 SING_ERROR_CONNECTION_LOST - набор удален  
@@ -980,7 +981,7 @@ int sing_del_phantom_n(FSingSet *kvset,const char *key,unsigned ksize)
 **_ksize_** - длина имени ключа  
 **Возвращаемые значения:**  
 0 - ключ удален  
-SING_RESULT_KEY_NOT_FOUND - ключ не найден, не фантомный, или не имеет фантомного значения
+SING_RESULT_KEY_NOT_FOUND - ключ не найден, не фантомный, или не имеет фантомного значения  
 SING_RESULT_IMPOSSIBLE_KEY - невозможный для используемого кодека ключ  
 SING_ERROR_NO_SET_MEMORY - не удается выделить страницу для новых данных. Ошибка может возникнуть при загрузке данных из дисковой копии.  
 SING_ERROR_IMPOSSIBLE_OPERATION - набор без фантомных ключей  
@@ -998,7 +999,7 @@ int sing_del_full_n(FSingSet *kvset,const char *key,unsigned ksize)
 **_ksize_** - длина имени ключа  
 **Возвращаемые значения:**  
 0 - ключ удален  
-SING_RESULT_KEY_NOT_FOUND - ключ не найден
+SING_RESULT_KEY_NOT_FOUND - ключ не найден  
 SING_RESULT_IMPOSSIBLE_KEY - невозможный для используемого кодека ключ  
 SING_ERROR_NO_SET_MEMORY - не удается выделить страницу для новых данных. Ошибка может возникнуть при загрузке данных из дисковой копии.  
 SING_ERROR_CONNECTION_LOST - набор удален  

@@ -55,7 +55,7 @@ int locks_test_reader(void)
 	if (!config)
 		return 1;
 	pthread_t req_t;
-	if (!(index = sing_create_set("locks_test",NULL,17003,0,LM_NONE,config)))
+	if (!(index = sing_create_set("locks_test",NULL,NULL,17003,0,LM_NONE,config)))
 		{
 		printf("Test %s failed: %s\n","locks_test_reader",sing_config_get_error(config));
 		sing_delete_config(config);
@@ -125,7 +125,7 @@ int locks_test_reader_revert(void)
 	if (!config)
 		return 1;
 	pthread_t req_t;
-	if (!(kvset = sing_create_set("set_revert_test",NULL,17003,0,LM_NONE,config)))
+	if (!(kvset = sing_create_set("set_revert_test",NULL,NULL,17003,0,LM_NONE,config)))
 		{
 		printf("Test %s failed: %s\n","locks_test_reader_revert",sing_config_get_error(config));
 		sing_delete_config(config);
@@ -329,7 +329,7 @@ int locks_test_lm_simple(void)
 	if (!config)
 		return 1;
 	pthread_t req_t, prc_t;
-	if (!(index = sing_create_set("locks_test",NULL,17003,0,LM_SIMPLE,config)))
+	if (!(index = sing_create_set("locks_test",NULL,NULL,17003,0,LM_SIMPLE,config)))
 		{
 		printf("Test %s failed: %s\n","locks_test_lm_simpe",sing_config_get_error(config));
 		sing_delete_config(config);
@@ -364,7 +364,7 @@ int locks_test_lm_fast(void)
 	if (!config)
 		return 1;
 	pthread_t req_t, prc_t;
-	if (!(index = sing_create_set("locks_test",NULL,17003,0,LM_FAST,config)))
+	if (!(index = sing_create_set("locks_test",NULL,NULL,17003,0,LM_FAST,config)))
 		{
 		printf("Test %s failed: %s\n","locks_test_lm_fast",sing_config_get_error(config));
 		sing_delete_config(config);
@@ -406,7 +406,7 @@ int locks_test_lm_simple_relink(void)
 	{
 	int trv;
 	pthread_t unl_thread;
-	FSingSet *index = sing_create_set("locks_test_simple_relink",NULL,0,SING_CF_KEEP_LOCK | SING_CF_UNLOAD_ON_CLOSE,LM_SIMPLE,NULL);
+	FSingSet *index = sing_create_set("locks_test_simple_relink",NULL,NULL,0,SING_CF_KEEP_LOCK | SING_CF_UNLOAD_ON_CLOSE,LM_SIMPLE,NULL);
 	if (!index)
 		return printf ("Test %s index creation failed\n","locks_test_lm_simple_relink"),1;
 	sing_unlock_commit(index,NULL);

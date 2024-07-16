@@ -9,11 +9,17 @@
 // Codec code: TC
 
 #include <string.h>
+#include <stdint.h>
 
 #include "codec.h"
-#include "stdint.h"
 
-const unsigned char RES_SIZES [RES_TABLE_SIZE] = {
+#define ALPHA_POWER 40
+#define ALPHA_POWER2 (ALPHA_POWER * ALPHA_POWER)
+#define ALPHA_POWER3 (ALPHA_POWER2 * ALPHA_POWER)
+#define ALPHA_POWER4 (ALPHA_POWER2 * ALPHA_POWER2)
+#define ALPHA_POWER5 (ALPHA_POWER2 * ALPHA_POWER3)
+
+static const unsigned char RES_SIZES [RES_TABLE_SIZE] = {
 			 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2,
 			 2, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 5, 5, 5,
 			 5, 5, 5, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 8,
@@ -35,7 +41,7 @@ const unsigned char RES_SIZES [RES_TABLE_SIZE] = {
 static inline void process_ext(FTransformData *tdata)
 	{
 	unsigned i,npos = 0;
-	unsigned hsum = tdata->transformed_key[0] + tdata->transformed_key[1] * 40 + tdata->transformed_key[2] * 40 * 40 + tdata->transformed_key[3] * 40 * 40 * 40;
+	unsigned hsum = tdata->transformed_key[0] + tdata->transformed_key[1] * ALPHA_POWER + tdata->transformed_key[2] * ALPHA_POWER2 + tdata->transformed_key[3] * ALPHA_POWER3;
 	unsigned size = tdata->trans_key_size;
 	
 	tdata->head.fields.data0 = hsum;
@@ -43,11 +49,11 @@ static inline void process_ext(FTransformData *tdata)
 	for (i = 4; i + 6 <= size;)
 		{
 		tdata->key_rest[npos] = tdata->transformed_key[i++];
-		tdata->key_rest[npos] += tdata->transformed_key[i++] * 40;
-		tdata->key_rest[npos] += tdata->transformed_key[i++] * 40 * 40; 
-		tdata->key_rest[npos] += tdata->transformed_key[i++] * 40 * 40 * 40; 
-		tdata->key_rest[npos] += tdata->transformed_key[i++] * 40 * 40 * 40 * 40; 
-		tdata->key_rest[npos] += tdata->transformed_key[i++] * 40 * 40 * 40 * 40 * 40; 
+		tdata->key_rest[npos] += tdata->transformed_key[i++] * ALPHA_POWER;
+		tdata->key_rest[npos] += tdata->transformed_key[i++] * ALPHA_POWER2; 
+		tdata->key_rest[npos] += tdata->transformed_key[i++] * ALPHA_POWER3; 
+		tdata->key_rest[npos] += tdata->transformed_key[i++] * ALPHA_POWER4; 
+		tdata->key_rest[npos] += tdata->transformed_key[i++] * ALPHA_POWER5; 
 		hsum = HASH_FUNC(hsum,tdata->key_rest[npos]);
 		npos++;
 		}
@@ -55,14 +61,10 @@ static inline void process_ext(FTransformData *tdata)
 	tdata->key_rest[npos] = 0; // Т.к. у нас есть лишний элемент в хвосте то это безопасно
 	switch (size - i)
 		{
-		case 5:
-			tdata->key_rest[npos]  = tdata->transformed_key[--size] * 40 * 40 * 40 * 40;
-		case 4:
-			tdata->key_rest[npos] += tdata->transformed_key[--size] * 40 * 40 * 40;
-		case 3:
-			tdata->key_rest[npos] += tdata->transformed_key[--size] * 40 * 40;
-		case 2:
-			tdata->key_rest[npos] += tdata->transformed_key[--size] * 40;
+		case 5: tdata->key_rest[npos]  = tdata->transformed_key[--size] * ALPHA_POWER4;
+		case 4: tdata->key_rest[npos] += tdata->transformed_key[--size] * ALPHA_POWER3;
+		case 3: tdata->key_rest[npos] += tdata->transformed_key[--size] * ALPHA_POWER2;
+		case 2: tdata->key_rest[npos] += tdata->transformed_key[--size] * ALPHA_POWER;
 		case 1:
 			tdata->key_rest[npos] += tdata->transformed_key[--size];
 			hsum = HASH_FUNC(hsum,tdata->key_rest[npos]);
@@ -78,29 +80,29 @@ void cd_encode(FTransformData *tdata)
 	switch (tdata->trans_key_size)
 		{
 		case 10:
-			hash = tdata->transformed_key[9] * 40 * 40 * 40 * 40 * 40;
+			hash = tdata->transformed_key[9] * ALPHA_POWER5;
 		case 9:
-			hash += tdata->transformed_key[8] * 40 * 40 * 40 * 40;
+			hash += tdata->transformed_key[8] * ALPHA_POWER4;
 		case 8:
-			hash += tdata->transformed_key[7] * 40 * 40 * 40;
+			hash += tdata->transformed_key[7] * ALPHA_POWER3;
 		case 7:
-			hash += tdata->transformed_key[6] * 40 * 40;
+			hash += tdata->transformed_key[6] * ALPHA_POWER2;
 		case 6:
-			hash += tdata->transformed_key[5] * 40;
+			hash += tdata->transformed_key[5] * ALPHA_POWER;
 		case 5: 
 			hash += tdata->transformed_key[4];
-			val = tdata->transformed_key[0] + tdata->transformed_key[1] * 40 + tdata->transformed_key[2] * 40 * 40 + tdata->transformed_key[3] * 40 * 40 * 40;
+			val = tdata->transformed_key[0] + tdata->transformed_key[1] * ALPHA_POWER + tdata->transformed_key[2] * ALPHA_POWER2 + tdata->transformed_key[3] * ALPHA_POWER3;
 			
 			tdata->head.fields.data0 = val;
 			tdata->hash = HASH_TO_HTSIZE(HASH_FUNC(val,hash),tdata->hash);
 			tdata->head.fields.extra = tdata->key_rest[0] = hash; // Putting key tail to both possible places
 			return;
 		case 4:
-			hash = tdata->transformed_key[3] * 40 * 40 * 40;
+			hash = tdata->transformed_key[3] * ALPHA_POWER3;
 		case 3:
-			hash += tdata->transformed_key[2] * 40 * 40;
+			hash += tdata->transformed_key[2] * ALPHA_POWER2;
 		case 2:
-			hash += tdata->transformed_key[1] * 40;
+			hash += tdata->transformed_key[1] * ALPHA_POWER;
 		case 1: 
 			hash += tdata->transformed_key[0];
 			tdata->head.fields.data0 = hash;
@@ -110,7 +112,7 @@ void cd_encode(FTransformData *tdata)
 	process_ext(tdata); // Все размещаем во внешней области
 	}
 	
-const char CODE_SYMS[40] = {
+static const char CODE_SYMS[ALPHA_POWER] = {
 	0  ,'E','A','N','I','O','R','T','S','L',
 	'C','U','D','H','M','G','B','W','K','F',
 	'V','Y','P','X','J','Q','Z','-','_','.',
@@ -125,13 +127,13 @@ int cd_decode(char *outBuf,const FKeyHead *head,const element_type *key_rest)
 	key_size = head->size;
 	work = head->data0;
 	
-	sym = work % 40, work /= 40;
+	sym = work % ALPHA_POWER, work /= ALPHA_POWER;
 	if (!sym) return 0;
 	outBuf[0] = CODE_SYMS[sym];
-	sym = work % 40, work /= 40;
+	sym = work % ALPHA_POWER, work /= ALPHA_POWER;
 	if (!sym) return 1;
 	outBuf[1] = CODE_SYMS[sym];
-	sym = work % 40, work /= 40;
+	sym = work % ALPHA_POWER, work /= ALPHA_POWER;
 	if (!sym) return 2;
 	outBuf[2] = CODE_SYMS[sym];
 	if (!work) return 3;
@@ -140,19 +142,19 @@ int cd_decode(char *outBuf,const FKeyHead *head,const element_type *key_rest)
 	if (key_size == 1 && !head->has_value)
 		{
 		work = head->extra;
-		sym = work % 40, work /= 40;
+		sym = work % ALPHA_POWER, work /= ALPHA_POWER;
 		if (!sym) return 4;
 		outBuf[4] = CODE_SYMS[sym];
-		sym = work % 40, work /= 40;
+		sym = work % ALPHA_POWER, work /= ALPHA_POWER;
 		if (!sym) return 5;
 		outBuf[5] = CODE_SYMS[sym];
-		sym = work % 40, work /= 40;
+		sym = work % ALPHA_POWER, work /= ALPHA_POWER;
 		if (!sym) return 6;
 		outBuf[6] = CODE_SYMS[sym];
-		sym = work % 40, work /= 40;
+		sym = work % ALPHA_POWER, work /= ALPHA_POWER;
 		if (!sym) return 7;
 		outBuf[7] = CODE_SYMS[sym];
-		sym = work % 40, work /= 40;
+		sym = work % ALPHA_POWER, work /= ALPHA_POWER;
 		if (!sym) return 8;
 		outBuf[8] = CODE_SYMS[sym];
 		if (!work) return 9;
@@ -164,19 +166,19 @@ int cd_decode(char *outBuf,const FKeyHead *head,const element_type *key_rest)
 	while(key_size--)
 		{
 		work = key_rest[dpos];
-		sym = work % 40, work /= 40;
+		sym = work % ALPHA_POWER, work /= ALPHA_POWER;
 		if (!sym) return add;
 		outBuf[add++] = CODE_SYMS[sym];
-		sym = work % 40, work /= 40;
+		sym = work % ALPHA_POWER, work /= ALPHA_POWER;
 		if (!sym) return add;
 		outBuf[add++] = CODE_SYMS[sym];
-		sym = work % 40, work /= 40;
+		sym = work % ALPHA_POWER, work /= ALPHA_POWER;
 		if (!sym) return add;
 		outBuf[add++] = CODE_SYMS[sym];
-		sym = work % 40, work /= 40;
+		sym = work % ALPHA_POWER, work /= ALPHA_POWER;
 		if (!sym) return add;
 		outBuf[add++] = CODE_SYMS[sym];
-		sym = work % 40, work /= 40;
+		sym = work % ALPHA_POWER, work /= ALPHA_POWER;
 		if (!sym) return add;
 		outBuf[add++] = CODE_SYMS[sym];
 		if (!work) return add;
@@ -186,7 +188,7 @@ int cd_decode(char *outBuf,const FKeyHead *head,const element_type *key_rest)
 	return add;
 	}
 	
-const unsigned char CHAR_CODES [256] = {
+static const unsigned char CHAR_CODES [256] = {
 	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 	 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 27, 29,  0, // - .

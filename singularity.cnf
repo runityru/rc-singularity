@@ -1,1 +1,2 @@
 db_dir: /var/lib/rc-singularity
+codec_dir: /usr/local/nic/rc-singularity/lib

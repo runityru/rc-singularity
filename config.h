@@ -36,6 +36,7 @@ typedef struct FSingConfigTg
 	char padding[3];
 	unsigned connect_flags;
 	char *base_location; 		// base persistent files location
+	char *codec_location;		// location of codec libs
 	char last_error[CF_ERROR_MSG_LEN];
 	} FSingConfig;
 
