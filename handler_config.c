@@ -58,6 +58,7 @@ void help_message(void)
 "  -f[c][n][d] csv_file_desc - same as -r (mutually exclusive) but share created only if not present. File\n"
 "                           filename should be present except in case when -dnf key is used.\n"
 "  -n number              - additional option for -r and -f for specifying approximated number of keys.\n"
+"  -C codec               - additional option for -r and -f for cpecifying key hashing algoritm\n"
 "  -j [tab|space|comma|   - additional option for -r and -f. This symbol will be used as a column separator\n"
 "      semicolon|'char']    for value storing. Default is tab.\n"
 "  -o filename            - print output to filename instead of STDOUT (little bit faster).\n"
@@ -310,6 +311,10 @@ FHandlerConfig *get_config(int argc, char *argv[],char *errbuf)
 				if (++arg_num >= argc || argv[arg_num][0] == '-') goto get_config_error;
 				rv->hashtable_size = atoi(argv[arg_num++]);
 				continue;
+			case 'C': // -C key, key codec for created set
+				if (++arg_num >= argc || argv[arg_num][0] == '-') goto get_config_error;
+				rv->codec = strdup(argv[arg_num++]);
+				continue;
 			case 'o': // -o key, output file
 				if (++arg_num >= argc || argv[arg_num][0] == '-') goto get_config_error;
 				if (!opdata) goto get_config_error;
@@ -391,6 +396,8 @@ FHandlerConfig *get_config(int argc, char *argv[],char *errbuf)
 					rv->flags |= CF_DESTROY;
 				else if (!strcmp(&argv[arg_num][2],"check"))
 					rv->flags |= CF_CHECK;
+				else if (!strcmp(&argv[arg_num][2],"check"))
+					rv->flags |= CF_CHECK;
 				else
 					 goto get_config_error;
 				arg_num ++;
@@ -439,5 +446,7 @@ void clear_config(FHandlerConfig *cfg)
 		sing_delete_config(cfg->base_config);
 	if (cfg->indexname)
 		free(cfg->indexname);
+	if (cfg->codec)
+		free(cfg->codec);
 	free(cfg);
 	}

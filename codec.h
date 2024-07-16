@@ -13,7 +13,6 @@
 
 #include "defines.h"
 #include "keyhead.h"
-#include "allocator.h"
 
 // Размер таблицы для вычисления размера ключа по размеру исходных данных
 #define RES_TABLE_SIZE 256
@@ -73,6 +72,10 @@ static inline int cd_opscan(char sym,FTransformData *tdata,int invert_operation)
 	tdata->operation = (tdata->operation + invert_operation) % 4;
 	return rv;
 	}
+
+typedef int (*CTransformKey)(const char *buffer,unsigned src_max_size,FTransformData *tdata);
+typedef void (*CEncodeKey)(FTransformData *tdata);
+typedef int (*CDecodeKey)(char *outBuf,const FKeyHead *head,const element_type *key_rest);
 
 // Функция преобразования исходного текстового ключа в промежуточный буфер. Двухшаговое преобразование удобно,
 // потому что перекодировку символов можно выполнять в том же switch, в котором определяется граница и 

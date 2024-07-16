@@ -130,7 +130,7 @@ int run_test(FTestData *test_data)
 	FSingConfig *config = sing_config_get_default();
 	if (!config)
 		return 1;
-	if (!(index = idx_create_set(test_data->name,0,test_data->flags,config)))
+	if (!(index = idx_create_set(test_data->name,NULL,0,test_data->flags,config)))
 		goto test_error;
 	element_type prep_data = test_data->prep ? (*test_data->prep)(index,&reserved) : 0;
 	idx_creation_done(index,test_data->lock_mode);

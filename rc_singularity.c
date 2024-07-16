@@ -127,10 +127,10 @@ typedef struct FSMWParamTg
 	FWriteBufferSet *resultWbs;
 	} FSMWParam;
 
-static inline void result_output_wval(const FKeyHead *head,const element_type *key_rest,const void *value, unsigned vsize,FWriteBufferSet *resultWbs)
+static inline void result_output_wval(FSingSet *kvset,const FKeyHead *head,const element_type *key_rest,const void *value, unsigned vsize,FWriteBufferSet *resultWbs)
 	{
 	char *name = fbw_get_ref(resultWbs);
-	unsigned size = cd_decode(&name[0],head,key_rest);
+	unsigned size = kvset->decode(&name[0],head,key_rest);
 	if (vsize)
 		{
 		name[size++] = '\t';
@@ -141,23 +141,23 @@ static inline void result_output_wval(const FKeyHead *head,const element_type *k
 	fbw_shift_pos(resultWbs,size);
 	}
 
-int parse_process_diff(FSingSet *index,FTransformData *tdata, void *cb_param) 
+int parse_process_diff(FSingSet *kvset,FTransformData *tdata, void *cb_param) 
 	{
 	if (tdata->operation != OP_ADD) 
 		return 0;
-	int res = idx_key_lookup_switch(index,tdata);
+	int res = idx_key_lookup_switch(kvset,tdata);
 
 	FSMWParam *smw_param = (FSMWParam *)cb_param;
 	if (res & KS_DIFFER)
 		{
 		fbw_add_sym(smw_param->resultWbs,'!');
-		result_output_wval(&(tdata->head.fields),tdata->key_rest,tdata->old_value,tdata->old_value_size,smw_param->resultWbs);
+		result_output_wval(kvset,&(tdata->head.fields),tdata->key_rest,tdata->old_value,tdata->old_value_size,smw_param->resultWbs);
 		fbw_commit(smw_param->resultWbs);
 		}
 	if (res & KS_SUCCESS)
 		{
 		fbw_add_sym(smw_param->resultWbs,(res & KS_DIFFER) ? '=':'+');
-		result_output_wval(&(tdata->head.fields),tdata->key_rest,tdata->value_source,tdata->value_size,smw_param->resultWbs);
+		result_output_wval(kvset,&(tdata->head.fields),tdata->key_rest,tdata->value_source,tdata->value_size,smw_param->resultWbs);
 		fbw_commit(smw_param->resultWbs);
 		}
 	if (smw_param->new_counters && (res & KS_MARKED))
@@ -165,23 +165,23 @@ int parse_process_diff(FSingSet *index,FTransformData *tdata, void *cb_param)
 	return res;
 	}
 
-int parse_process_diff_replace(FSingSet *index,FTransformData *tdata, void *cb_param) 
+int parse_process_diff_replace(FSingSet *kvset,FTransformData *tdata, void *cb_param) 
 	{
 	if (tdata->operation != OP_ADD) 
 		return 0;
-	int res = idx_key_set_switch(index,tdata,KS_ADDED | KS_DELETED);
+	int res = idx_key_set_switch(kvset,tdata,KS_ADDED | KS_DELETED);
 
 	FSMWParam *smw_param = (FSMWParam *)cb_param;
 	if (res & KS_DELETED)
 		{
 		fbw_add_sym(smw_param->resultWbs,'!');
-		result_output_wval(&(tdata->head.fields),tdata->key_rest,tdata->old_value,tdata->old_value_size,smw_param->resultWbs);
+		result_output_wval(kvset,&(tdata->head.fields),tdata->key_rest,tdata->old_value,tdata->old_value_size,smw_param->resultWbs);
 		fbw_commit(smw_param->resultWbs);
 		}
 	if (res & KS_ADDED)
 		{
 		fbw_add_sym(smw_param->resultWbs,(res & KS_DELETED) ? '=':'+');
-		result_output_wval(&(tdata->head.fields),tdata->key_rest,tdata->value_source,tdata->value_size,smw_param->resultWbs);
+		result_output_wval(kvset,&(tdata->head.fields),tdata->key_rest,tdata->value_source,tdata->value_size,smw_param->resultWbs);
 		fbw_commit(smw_param->resultWbs);
 		}
 	if (smw_param->new_counters && (res & KS_MARKED))
@@ -215,7 +215,7 @@ int parse_process_intersect_replace(FSingSet *index,FTransformData *tdata, void 
 
 // Функции работы с файлами
 
-FSingSet *sing_create_set(const char *setname,const FSingCSVFile *csv_file,unsigned keys_count,unsigned flags,unsigned lock_mode,FSingConfig *config)
+FSingSet *sing_create_set(const char *setname,const char *codec,const FSingCSVFile *csv_file,unsigned keys_count,unsigned flags,unsigned lock_mode,FSingConfig *config)
 	{
 	FReadBufferSet *sourceRbs = NULL;
 	FSingSet *index;
@@ -248,13 +248,13 @@ FSingSet *sing_create_set(const char *setname,const FSingCSVFile *csv_file,unsig
 			keys_count = fp_countKeys(sourceRbs,filesize) / 4;
 		}
 
-	if ((index = idx_create_set(setname,keys_count,flags,used_config)))
+	if ((index = idx_create_set(setname,codec,keys_count,flags,used_config)))
 		{
 		FFileParseParam fpp = {csv_file,sourceRbs};
 		if (sourceRbs && pl_pipeline(index,fp_init,fp_get_next,&fpp,(index->head->use_flags & UF_PHANTOM_KEYS) ? phantom_process : std_process,0,NULL,keys_count))
-			strncpy(used_config->last_error,index->last_error,CF_ERROR_MSG_LEN - 1),sing_delete_set(index),index = NULL;
+			cnf_set_error(used_config,index->last_error),sing_delete_set(index),index = NULL;
 		else if (idx_creation_done(index,lock_mode))
-			strncpy(used_config->last_error,index->last_error,CF_ERROR_MSG_LEN - 1),sing_delete_set(index),index = NULL;
+			cnf_set_error(used_config,index->last_error),sing_delete_set(index),index = NULL;
 		}
 	fbr_finish(sourceRbs);
 	if (!config)
@@ -528,11 +528,11 @@ static inline int _init_tdata(FSingSet *kvset,FTransformData *tdata,const char *
 	tdata->use_phantom = use_phantom;
 	if (!key)
 		return 1;
-	int size = cd_transform(key,ksize,tdata);
+	int size = kvset->transform(key,ksize,tdata);
 	if (size <= 0 || (size < ksize && key[size]))
 		return 1;
 	tdata->hash = kvset->hashtable_size;
-	cd_encode(tdata);
+	kvset->encode(tdata);
 	return 0;
 	}
 

@@ -168,10 +168,10 @@ int main(int argc, char *argv[])
 				config->operations[0].file_op.filename = NULL;
 				reset_file = config->reset_data.filename;
 				}
-			shmIndex = sing_create_set(config->indexname,&config->reset_data,config->hashtable_size,config->conn_flags | config->use_flags,0,config->base_config);
+			shmIndex = sing_create_set(config->indexname,config->codec,&config->reset_data,config->hashtable_size,config->conn_flags | config->use_flags,0,config->base_config);
 			}
 		else
-			shmIndex = sing_create_set(config->indexname,NULL,config->hashtable_size,config->conn_flags | config->use_flags,0,config->base_config);
+			shmIndex = sing_create_set(config->indexname,config->codec,NULL,config->hashtable_size,config->conn_flags | config->use_flags,0,config->base_config);
 		}
 
 	if (!shmIndex)

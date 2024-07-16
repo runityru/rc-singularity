@@ -91,6 +91,7 @@ typedef struct FHandlerConfigTg
 	{
 	FSingConfig *base_config;
 	char *indexname;
+	char *codec;
 	uint32_t cores;				// -i key, cpu cores number
 
 	uint32_t flags;				// used CF_ keys and options

@@ -84,7 +84,7 @@ void sing_delete_config(FSingConfig *config);
 
 // set manipulation
 
-FSingSet *sing_create_set(const char *setname,const FSingCSVFile *csv_file,unsigned keys_count,unsigned flags,unsigned lock_mode,FSingConfig *config);
+FSingSet *sing_create_set(const char *setname,const char *codec,const FSingCSVFile *csv_file,unsigned keys_count,unsigned flags,unsigned lock_mode,FSingConfig *config);
 FSingSet *sing_link_set(const char *setname,unsigned flags,FSingConfig *config);
 void sing_unlink_set(FSingSet *index);
 int sing_unload_set(FSingSet *index);

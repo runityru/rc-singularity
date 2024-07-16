@@ -40,7 +40,7 @@ int run_parse_test(FParseTest *test_data)
 	filedesc.key_col_num = test_data->key_num;
 	filedesc.val_col_mask = test_data->vmask;
 
-	if (!(index = sing_create_set("parse_test",&filedesc,0,SING_UF_NOT_PERSISTENT,SING_LM_NONE,config)))
+	if (!(index = sing_create_set("parse_test",NULL,&filedesc,0,SING_UF_NOT_PERSISTENT,SING_LM_NONE,config)))
 		goto test_error;
 
 	char value[20];

@@ -16,8 +16,8 @@
 int hole_size_idx_test(char *errbuf)
 	{
 	unsigned needed_hs_idx = 0, hs_idx,i;
-	// ќт 1 до MAX_KEY_SIZE должно увеличиватьс€ на 1
-	for (i = 1; i <= MAX_KEY_SIZE; i++)
+	// ќт 1 до INDEXED_HOLESIZE_CNT должно увеличиватьс€ на 1
+	for (i = 1; i <= INDEXED_HOLESIZE_CNT; i++)
 		{
 		hs_idx = HOLESIZE_IDX(i);
 		if (needed_hs_idx != hs_idx)
@@ -27,29 +27,18 @@ int hole_size_idx_test(char *errbuf)
 			}
 		needed_hs_idx++;
 		}
-	// ѕока старший бит тот же что и в MAX_KEY_SIZE - должно увеличиватьс€ на 1
 	unsigned size = 1;
-	while ((size <<= 1) <= MAX_KEY_SIZE);
-	for (; i < size; i++)
-		{
-		hs_idx = HOLESIZE_IDX(i);
-		if (needed_hs_idx != hs_idx)
-			{ 
-			sprintf(errbuf,"Bad holesize index, size %d, index %d, should be %d",i,hs_idx,needed_hs_idx); 
-			return 1; 
-			}
-		needed_hs_idx++;
-		}
+	while ((size <<= 1) < INDEXED_HOLESIZE_CNT);
 	// ƒальше до PAGE_SIZE должно увеличиватьс€ на 1 с каждым новым старшим битом
 	while (size < PAGE_SIZE)
 		{
-		hs_idx = HOLESIZE_IDX(size);
+		hs_idx = HOLESIZE_IDX(size + 1);
 		if (needed_hs_idx != hs_idx)
 			{ 
 			sprintf(errbuf,"Bad holesize index, size %d, index %d, should be %d",size,hs_idx,needed_hs_idx); 
 			return 1; 
 			}
-		hs_idx = HOLESIZE_IDX(size * 2 - 1);
+		hs_idx = HOLESIZE_IDX(size * 2);
 		if (needed_hs_idx != hs_idx)
 			{ 
 			sprintf(errbuf,"Bad holesize index, size %d, index %d, should be %d",size,hs_idx,needed_hs_idx);
@@ -58,10 +47,8 @@ int hole_size_idx_test(char *errbuf)
 		needed_hs_idx++;
 		size *= 2;
 		}
-	hs_idx = HOLESIZE_IDX(size);
-	if (needed_hs_idx != hs_idx)
-		{ sprintf(errbuf,"Bad holesize index, size %d, index %d, should be %d",size,hs_idx,needed_hs_idx); return 1; }
-	if (++hs_idx != HOLESIZE_CNT)
+	hs_idx = HOLESIZE_IDX(size + 1);
+	if (hs_idx != HOLESIZE_CNT)
 		{ sprintf(errbuf,"Bad holesize count, has %d, should be %d",hs_idx,HOLESIZE_CNT); return 1; }
 	return 0;	
 	}

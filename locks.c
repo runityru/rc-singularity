@@ -16,7 +16,7 @@
 #include "cpages.h"
 #include "index.h"
 
-static uint32_t gettid(void)
+static uint32_t _gettid(void)
 	{
 	return (uint32_t)syscall(SYS_gettid);
 	}
@@ -64,7 +64,7 @@ void lck_deinit_locks(FSingSet *kvset)
 void lck_lock_sh(FShExLock *lock)
 	{
 	FShExLock shex_lock,new_state;
-	uint32_t tid = gettid();
+	uint32_t tid = _gettid();
 lck_lock_sh_repeat:
 	shex_lock.whole = __atomic_load_n(&lock->whole,__ATOMIC_RELAXED); 
 lck_lock_sh_repeat2:
@@ -83,14 +83,14 @@ lck_lock_sh_repeat2:
 
 void lck_unlock_sh(FShExLock *lock)
 	{
-	if (__atomic_load_n(&lock->exclusive_lock,__ATOMIC_RELAXED) != gettid())
+	if (__atomic_load_n(&lock->exclusive_lock,__ATOMIC_RELAXED) != _gettid())
 		__atomic_sub_fetch(&lock->shared_count,1,__ATOMIC_RELEASE);
 	}
 
 int lck_lock_ex(FSingSet *kvset)
 	{
 	BAD_STATES_CHECK(kvset);
-	uint32_t tid = gettid();
+	uint32_t tid = _gettid();
 	FShExLock shex_lock,new_state;
 	shex_lock.whole = __atomic_load_n(&kvset->lock_set->shex_lock.whole,__ATOMIC_RELAXED); 
 	if (shex_lock.exclusive_lock == tid)
@@ -110,7 +110,7 @@ lck_lock_ex_repeat:
 static int _try_ex(FSingSet *kvset)
 	{
 	BAD_STATES_CHECK(kvset);
-	uint32_t tid = gettid();
+	uint32_t tid = _gettid();
 	FShExLock shex_lock,new_state;
 	shex_lock.whole = __atomic_load_n(&kvset->lock_set->shex_lock.whole,__ATOMIC_RELAXED); 
 	if (shex_lock.exclusive_lock == tid)
@@ -301,7 +301,7 @@ int lck_manualLock(FSingSet *kvset)
 		return ERROR_IMPOSSIBLE_OPERATION;
 	int res = _common_mutexLock(kvset);
 	if (!res)
-		__atomic_store_n(&kvset->protect_lock.manual_locked,gettid(),__ATOMIC_SEQ_CST); // Or we can lose this if this thread switch to other core before unlock
+		__atomic_store_n(&kvset->protect_lock.manual_locked,_gettid(),__ATOMIC_SEQ_CST); // Or we can lose this if this thread switch to other core before unlock
 	return res;
 	}
 
@@ -312,9 +312,9 @@ int lck_manualPresent(FSingSet *kvset)
 	switch(kvset->head->lock_mode)
 		{
 		case LM_PROTECTED:
-			return (__atomic_load_n(&kvset->protect_lock.manual_locked,__ATOMIC_RELAXED) == gettid()) ? 1 : 0;
+			return (__atomic_load_n(&kvset->protect_lock.manual_locked,__ATOMIC_RELAXED) == _gettid()) ? 1 : 0;
 		case LM_FAST:
-			return (kvset->lock_set->shex_lock.exclusive_lock == gettid()) ? 1 : 0;
+			return (kvset->lock_set->shex_lock.exclusive_lock == _gettid()) ? 1 : 0;
 		case LM_SIMPLE:
 			return kvset->protect_lock.manual_locked;
 		}
@@ -340,7 +340,7 @@ int lck_manualTry(FSingSet *kvset)
 		return ERROR_IMPOSSIBLE_OPERATION;
 	int res = _mutexTry(kvset);
 	if (!res)
-		__atomic_store_n(&kvset->protect_lock.manual_locked,gettid(),__ATOMIC_SEQ_CST); // Or we can lose this if this thread switch to other core before unlock
+		__atomic_store_n(&kvset->protect_lock.manual_locked,_gettid(),__ATOMIC_SEQ_CST); // Or we can lose this if this thread switch to other core before unlock
 	return res;
 	}
 
@@ -366,12 +366,12 @@ int lck_manualUnlock(FSingSet *kvset,int commit,uint32_t *saved)
 		case LM_NONE:
 			return ERROR_IMPOSSIBLE_OPERATION;
 		case LM_PROTECTED:
-			if (__atomic_load_n(&kvset->protect_lock.manual_locked,__ATOMIC_RELAXED) != gettid())
+			if (__atomic_load_n(&kvset->protect_lock.manual_locked,__ATOMIC_RELAXED) != _gettid())
 				return ERROR_IMPOSSIBLE_OPERATION; // There can't be our tid anyway
 			lck_protectWait(kvset);
 			break; // We are still under mutex, but other threads are stopped, so we can perform disk sync
 		case LM_FAST:
-			if (kvset->lock_set->shex_lock.exclusive_lock != gettid())
+			if (kvset->lock_set->shex_lock.exclusive_lock != _gettid())
 				return ERROR_IMPOSSIBLE_OPERATION; // We should check if manual lock is removing by same thread
 			break;
 		case LM_SIMPLE:

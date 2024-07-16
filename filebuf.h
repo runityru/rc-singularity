@@ -37,7 +37,7 @@ typedef struct FReadBufferTg
 	FIOBufferState state_data;
 	int size;
 	CACHE_LINE_PADDING(padding1,sizeof(FIOBufferState) + sizeof(unsigned));
-	char data[KEY_BUFFER_SIZE + BUFFER_SIZE];
+	char data[KEY_BUFFER_SIZE + BUFFER_SIZE + CACHE_LINE_SIZE];
 	} FReadBuffer;
 
 typedef struct FReadBufferSetTg

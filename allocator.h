@@ -11,11 +11,6 @@
 
 #include "defines.h"
 
-#define VALUE_SIZE_WIDTH (LOG_BIN_MACRO(MAX_VALUE_SIZE))
-// Value size should be power of 2 for omitting value size check in reads
-#if (1 << VALUE_SIZE_WIDTH) != MAX_VALUE_SIZE
-	#error Bad value size
-#endif
 
 #define EXTRA_BYTES_COUNT (MAX_VALUE_SIZE / 2 * ELEMENT_SIZE)
 
@@ -33,11 +28,6 @@ typedef union FValueHeadGeneralTg
 	} FValueHeadGeneral;
 	
 #define VALUE_HEAD_SIZE (sizeof(FValueHead) / ELEMENT_SIZE + (sizeof(FValueHead) % ELEMENT_SIZE) ? 1 : 0)
-
-// Максимальный размер хвоста ключа. (4 байта = 0, 5 байт = 1, 11 байт = 2 etc) + 1 (см. process_ext)
-#define MAX_KEY_SIZE ((MAX_KEY_SOURCE + 1)/6 + 1)
-
-#define CACHE_ALIGNED_MAX_KEY_SIZE (CACHE_LINE_SIZE * (MAX_KEY_SIZE * ELEMENT_SIZE / CACHE_LINE_SIZE + (((MAX_KEY_SIZE * ELEMENT_SIZE) % CACHE_LINE_SIZE)?1:0)))
 
 #define MAX_VALUE_SOURCE ((MAX_VALUE_SIZE - VALUE_HEAD_SIZE - 2) * ELEMENT_SIZE)
 
@@ -74,15 +64,15 @@ typedef struct
 // Большие - по двоичному логарифму (берется дырка на размер больше)
 // MIN_HOLE_SIZE добавляется для быстрейшего выделения памяти под все размеры ключей, т.к. получение дырки из логарифмической области почти всегда приводит к ее делению
 // Размеры меньше минимального тоже имеют ссылку на первую подстраницу, так что их тоже считаем
-#define INDEXED_HOLESIZE_CNT ((1 << (LOG_BIN_MACRO(MAX_KEY_SIZE + MIN_HOLE_SIZE) + 1)) - 1)
+#define INDEXED_HOLESIZE_CNT 64
 
 // Индекс дырки, S - размер
 // Единицу вычитаем, т.к. дырок нулевого размера нет
-#define HOLESIZE_LOG_IDX(S) (INDEXED_HOLESIZE_CNT + LOG_BIN(S) - LOG_BIN_MACRO(MAX_KEY_SIZE + MIN_HOLE_SIZE) - 1)
-#define HOLESIZE_IDX(S) ((S) <= INDEXED_HOLESIZE_CNT ? ((S) - 1) : HOLESIZE_LOG_IDX(S))
+#define HOLESIZE_LOG_IDX(S) (INDEXED_HOLESIZE_CNT + LOG_BIN(S) - LOG_BIN_MACRO(INDEXED_HOLESIZE_CNT))
+#define HOLESIZE_IDX(S) ((S) <= INDEXED_HOLESIZE_CNT ? ((S) - 1) : HOLESIZE_LOG_IDX((S) - 1))
 
 // Всего цепочек дырок.
-#define HOLESIZE_CNT (INDEXED_HOLESIZE_CNT + LOG_BIN_MACRO(PAGE_SIZE) - LOG_BIN_MACRO(MAX_KEY_SIZE + MIN_HOLE_SIZE))
+#define HOLESIZE_CNT (INDEXED_HOLESIZE_CNT + LOG_BIN_MACRO(PAGE_SIZE) - LOG_BIN_MACRO(INDEXED_HOLESIZE_CNT))
 
 typedef struct
 	{

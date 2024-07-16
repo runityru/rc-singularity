@@ -35,7 +35,7 @@ static const char *pattern = "ABCDEFGHIJK";
 void create_test_file(char *filename,int size)
 	{
 	int pos = 0;
-	FILE *f = fopen(filename,"a");
+	FILE *f = fopen(filename,"w");
 	while (pos + 11 <= size)
 		fputs(pattern,f),pos += 11;
 	fprintf(f,"%.*s",size - pos,pattern);

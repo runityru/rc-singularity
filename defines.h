@@ -38,6 +38,12 @@ typedef unsigned element_type; // Adressed element
 
 #define ALIGN_UP(VALUE,ALIGN) ((ALIGN) * ((VALUE) / (ALIGN) + ((VALUE) % (ALIGN) ? 1 : 0)))
 #define CACHE_LINE_PADDING(NAME,SIZE) char NAME[ALIGN_UP((SIZE),CACHE_LINE_SIZE) - (SIZE)]
+
+// Max key rest size in elements, at least 2 bytes go in head, and 1 extra element at the end for faster encoding (see process_ext)
+// 2 bytes = 0, ELEMENT_SIZE + 2 bytes = 1, ELEMENT_SIZE * 2 + 2 bytes = 2 etc) + 1 (см. process_ext)
+#define MAX_KEY_SIZE ((MAX_KEY_SOURCE + ELEMENT_SIZE - 3)/ELEMENT_SIZE + 1)
+#define CACHE_ALIGNED_MAX_KEY_SIZE ALIGN_UP(MAX_KEY_SIZE * ELEMENT_SIZE,CACHE_LINE_SIZE)
+
 #define CACHE_ALIGNED_MAX_KEY_SOURCE ALIGN_UP(MAX_KEY_SOURCE,CACHE_LINE_SIZE)
 
 // Number of addressed elements on page
@@ -85,6 +91,13 @@ typedef unsigned element_type; // Adressed element
 
 #if MAX_VALUE_SIZE > PAGE_SIZE
 	#error Value size is larger than page size 
+#endif
+
+// Width of MAX_VALUE_SIZE in bits
+#define VALUE_SIZE_WIDTH (LOG_BIN_MACRO(MAX_VALUE_SIZE))
+// Value size should be power of 2 for omitting value size check in reads
+#if (1 << VALUE_SIZE_WIDTH) != MAX_VALUE_SIZE
+	#error Bad value size
 #endif
 
 // Счетчики числа ключей в блоках 

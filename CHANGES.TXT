@@ -3,6 +3,10 @@ Major - data store format
 Minor - incompatible API changes
 Release - fixes, performance improvement, API additions
 
+1.2.0 - Codecs. It is new parameter in sing_create_set. Old lat_num codec is now default, corresponds to NULL value in this parameter. Two other codecs, 
+        shipped with the library, is "rus" for russian utf8 keynames and "c64" for zero terminating bytestring with possible values 1-63. 
+        There are new entry codec_dir in config for codec lookup, and new key -C in sing_handler for specifying codec in new sets.
+
 1.1.22 - Some documentation fixes.
 
 1.1.21 - Made more faster makefile. Fixed CF_FULL_LOAD and CF_READER flags work together.

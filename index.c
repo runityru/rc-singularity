@@ -18,6 +18,7 @@
 #include <stdarg.h>
 #include <sched.h>
 #include <errno.h>
+#include <dlfcn.h>
 
 #include "config.h"
 #include "index.h"
@@ -31,7 +32,7 @@
 
 #define O_NEWFILE (O_RDWR | O_TRUNC | O_CREAT)
 
-const char *FILE_SIGNATURE __attribute__ ((aligned (4))) = "TC01"; // Codec name and major version
+const char *FILE_SIGNATURE __attribute__ ((aligned (4))) = "TC02"; // format version
 
 // Выделяет и инициализирует структуру
 
@@ -46,6 +47,10 @@ void _init_index(FSingSet *rv,int keep_filenames)
 		memset(&rv->filenames,0,sizeof(FFileNames));
 	rv->protect_lock.whole = 0LL;
 	rv->last_error[0] = 0;
+	rv->transform = cd_transform;
+	rv->encode = cd_encode;
+	rv->decode = cd_decode;
+	rv->codec_handle = NULL;
 
 	for (i = 0; i < MAX_PAGES; i++)
 		{ rv->pages[i] = MAP_FAILED; }
@@ -114,22 +119,45 @@ static int _copy_names(FFileNames *old_names,FFileNames *new_names,const char *o
 	return 0;
 	}
 
-void idx_set_error(FSingSet *index,const char *message)
+void idx_set_error(FSingSet *kvset,const char *message)
 	{
-	strncpy(index->last_error,message,CF_ERROR_MSG_LEN - 1);
+	strncpy(kvset->last_error,message,CF_ERROR_MSG_LEN - 1);
 	}
 
-void idx_set_formatted_error(FSingSet *index,const char *format,...)
+void idx_set_formatted_error(FSingSet *kvset,const char *format,...)
 	{
 	va_list args;
 	va_start(args, format);
-	vsnprintf(index->last_error,CF_ERROR_MSG_LEN - 1,format, args);
+	vsnprintf(kvset->last_error,CF_ERROR_MSG_LEN - 1,format, args);
 	va_end(args);
+	}
+
+static int link_codec(FSingSet *kvset, const char *name,FSingConfig *config)
+	{
+	char soname[512];
+#ifdef DEBUG_CODECS
+	snprintf(soname,512,"%slibd%s.so",config->codec_location ? config->codec_location : "",name);
+#else
+	snprintf(soname,512,"%slib%s.so",config->codec_location ? config->codec_location : "",name);
+#endif
+	if (!(kvset->codec_handle = dlopen(soname, RTLD_NOW)))
+		return cnf_set_formatted_error(config,"codec %s not found, error %s",soname,dlerror()),-1;
+	void *transform, *encode, *decode;
+	if (!(transform = dlsym(kvset->codec_handle,"cd_transform")))
+		return cnf_set_formatted_error(config,"cd_transform not found in %s",name),-1;
+	if (!(encode = dlsym(kvset->codec_handle,"cd_encode")))
+		return cnf_set_formatted_error(config,"cd_encode not found in %s",name),-1;
+	if (!(decode = dlsym(kvset->codec_handle,"cd_decode")))
+		return cnf_set_formatted_error(config,"cd_decode not found in %s",name),-1;
+	kvset->transform = transform;
+	kvset->encode = encode;
+	kvset->decode = decode;
+	return 0;
 	}
 
 // Create empty index
 // Return created index with index_fd flocked for subsequent filling
-FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,FSingConfig *config)
+FSingSet *idx_create_set(const char *setname,const char *codec,unsigned keys_count,unsigned flags,FSingConfig *config)
 	{
 	FSingSet *rv = NULL;
 	FSetHead *head;
@@ -144,8 +172,21 @@ FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,
 		return cnf_set_error(config,"incompatible flags"), NULL;
 
 	if (!(rv = _alloc_index()))
-		{ cnf_set_error(config,"not enougth memory for set initialization"); return NULL; }
+		return cnf_set_error(config,"not enougth memory for set initialization"), NULL;
 	_init_index(rv,0);
+	char codec_name[8] = {0};
+
+	if(codec)
+		{
+		if (strlen(codec) > 7)
+			{
+			cnf_set_formatted_error(config,"bad codec name %s",codec);
+			goto idx_empty_index_fail;			
+			}
+		if (link_codec(rv,codec,config))
+			goto idx_empty_index_fail;
+		strcpy(codec_name,codec);
+		}
 
 	if (!setname)
 		{
@@ -222,6 +263,7 @@ FSingSet *idx_create_set(const char *setname,unsigned keys_count,unsigned flags,
 	
 	head->sizes = head_sizes;	
 	head->signature = *((unsigned *)FILE_SIGNATURE);
+	memcpy(head->codec,codec_name,8);
 	head->hashtable_size = rv->hashtable_size = keys_count;
 	head->count = 0;
 	head->lock_mode = LM_NONE; // Until initial fill
@@ -504,6 +546,12 @@ static int _link_set(FSingSet *rv,FSingConfig *config)
 			rv->is_persistent = 1;
 			}
 		}
+	if (head->codec[0])
+		{
+		if (link_codec(rv,head->codec,config))
+			goto _link_set_fail;
+		}
+
 	rv->read_only = (head->lock_mode == LM_READ_ONLY) ? 1 : 0;
 	switch(head->lock_mode)
 		{
@@ -686,6 +734,7 @@ void idx_unlink_set(FSingSet *index)
 	if (index->disk_index_fd != -1) close(index->disk_index_fd); 	// Файл индекса на диске
 	if (index->disk_pages_fd != -1) close(index->disk_pages_fd); 	// Файл страниц на диске
 	if (index->filenames.index_shm_file) free(index->filenames.index_shm_file);
+	if (index->codec_handle) dlclose(index->codec_handle);
 	}
 
 int idx_unload_set(FSingSet *kvset,int del_from_disk)
@@ -2041,7 +2090,7 @@ static int result_output(FSingSet *kvset,const FKeyHeadGeneral head,FWriteBuffer
 	{
 	element_type *key_rest = (head.data.size_and_value > 3) ? pagesPointer(kvset,head.fields.extra) : NULL;
 	char *name = fbw_get_ref(wbs);
-	unsigned size = cd_decode(&name[0],&head.fields,key_rest);
+	unsigned size = kvset->decode(&name[0],&head.fields,key_rest);
 
 	if (head.fields.has_value)
 		{
@@ -2061,7 +2110,7 @@ static int phantom_output(FSingSet *kvset,const FKeyHeadGeneral head,FWriteBuffe
 	element_type *key_rest = (head.data.size_and_value > 3) ? pagesPointer(kvset,head.fields.extra) : NULL;
 	char *name = fbw_get_ref(wbs);
 	name[0] = '+';
-	unsigned keysize = cd_decode(&name[1],&head.fields,key_rest);
+	unsigned keysize = kvset->decode(&name[1],&head.fields,key_rest);
 	unsigned size = keysize + 1;
 
 	if (head.fields.diff_or_phantom_mark)
@@ -2248,7 +2297,7 @@ del_unmarked_from_hash_chain_found:
 #ifdef LOG_OPERATION
 	static char key_buf[MAX_KEY_SOURCE + 1];
 	element_type *key_rest = (key_head->data.size_and_value > 3) ? pagesPointer(index,key_head->fields.extra) : NULL;
-	unsigned key_size = cd_decode(&key_buf[0],&key_head->fields,key_rest);
+	unsigned key_size = index->decode(&key_buf[0],&key_head->fields,key_rest);
 	key_buf[key_size] = 0;
 	
 	FORMATTED_LOG("deleting key %s\n",key_buf);
@@ -2517,7 +2566,7 @@ static inline int cb_call(FSingSet *index,FKeyHeadGeneral *key_head,CSingIterate
 	else
 		key_rest = NULL, value_data = NULL, vsize = 0;
 	char keybuf[MAX_KEY_SOURCE + 1];
-	unsigned size = cd_decode(keybuf,&key_head->fields,key_rest);
+	unsigned size = index->decode(keybuf,&key_head->fields,key_rest);
 	keybuf[size] = 0;
 	int res = (*cb)(keybuf,value_data,&vsize,new_value,param);
 	return res >= 0 ? 0 : ERROR_BREAK;

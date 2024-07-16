@@ -72,6 +72,7 @@ FSingConfig *sing_config_get_default(void)
 			strcpy(config->base_location,v);
 			if (config->base_location[sl - 1] != '/')
 				config->base_location[sl] = '/',config->base_location[sl+1] = 0;
+			continue;
 			}
 		if (!strcmp(k,"column_delimiter"))
 			{
@@ -79,6 +80,16 @@ FSingConfig *sing_config_get_default(void)
 				config->column_delimiter = '\t';
 			else
 				config->column_delimiter = v[0];
+			continue;
+			}
+		if (!strcmp(k,"codec_dir"))
+			{
+			int sl = strlen(v);
+			config->codec_location = (char *)malloc(sl + 2);
+			strcpy(config->codec_location,v);
+			if (config->codec_location[sl - 1] != '/')
+				config->codec_location[sl] = '/',config->codec_location[sl+1] = 0;
+			continue;
 			}
 		}
 	fclose(sfh);

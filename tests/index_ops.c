@@ -26,7 +26,7 @@ void test_make_tdata(FSingSet *index,char *key_source,int vsize,unsigned char *v
 	tdata->head.fields.chain_stop = 1;
 	tdata->head.fields.diff_or_phantom_mark = (flags & TF_SET_PHANTOM) ? 1 : 0;
 	tdata->use_phantom = (flags & TF_USE_PHANTOM) ? 1 : 0;
-	cd_transform(key_source,MAX_KEY_SOURCE,tdata);
+	index->transform(key_source,MAX_KEY_SOURCE,tdata);
 	tdata->hash = index->hashtable_size;
 	cd_encode(tdata);
 	}
